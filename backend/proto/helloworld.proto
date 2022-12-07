@@ -3,6 +3,8 @@ package helloworld;
 
 service Greeter {
     rpc SayHello (HelloRequest) returns (HelloReply);
+    rpc Deposit (FundChange) returns (GenericResponse);
+    rpc Withdraw (FundChange) returns (GenericResponse);
 }
 
 message HelloRequest {
@@ -10,5 +12,14 @@ message HelloRequest {
 }
 
 message HelloReply {
+    string message = 1;
+}
+
+message FundChange {
+    uint32 user = 1;
+    uint32 amount = 2;
+}
+
+message GenericResponse {
     string message = 1;
 }

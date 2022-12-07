@@ -19,6 +19,13 @@ pub enum FundState {
     BetCancelled,
     Converted,
 }
+#[derive(Debug, PartialEq)]
+pub struct Bet {
+    pub user: String,
+    pub market: String,
+    pub option: String,
+    pub amount: Sats,
+}
 pub struct PredictionMarket {
     assumption: String,
     trading_end: DateTime<Utc>,
@@ -47,8 +54,8 @@ pub enum JudgeState {
     Resolved(bool),
 }
 pub struct User {
-    nickname: String,
-    description: String,
+    pub id: String,
+    pub sats: Sats,
 }
 impl PredictionMarket {
     fn new(
@@ -74,7 +81,7 @@ impl PredictionMarket {
         })
     }
 }
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Serialize, Deserialize, PartialEq)]
 pub enum MercadoError {
     NotEnoughJudges,
     EvenJudgeAmount,
@@ -85,4 +92,6 @@ pub enum MercadoError {
     MarketDoesntExist,
     JudgeDoesntExist,
     NominationAlreadyAccepted,
+    QueryFailed,
+    WrongQueryResponseStructure,
 }

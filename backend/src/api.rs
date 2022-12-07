@@ -53,8 +53,3 @@ impl API {
         todo!()
     }
 }
-#[derive(Debug, Serialize, Deserialize)]
-pub struct DepositRequest {
-    user: Id,
-    amount: Sats,
-}
