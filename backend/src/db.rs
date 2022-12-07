@@ -1,6 +1,7 @@
-use crate::market::{Bet, MercadoError, Sats, User};
+use crate::market::{Bet, Market, MercadoError, Sats, User};
+use chrono::{Duration, Utc};
 use std::collections::BTreeMap;
-use surrealdb::sql::{Array, Datetime, Duration, Number, Object, Strand};
+use surrealdb::sql::{Array, Datetime, Duration as SDuration, Number, Object, Strand};
 use surrealdb::{
     sql::{parse, Value},
     Datastore, Response, Session,
@@ -61,7 +62,7 @@ impl DB {
         id: &str,
         assumption: &str,
         judge_share: f32,
-        decision_period: Duration,
+        decision_period: SDuration,
         trading_end: Datetime,
     ) {
         self.process(
@@ -71,12 +72,54 @@ impl DB {
                 assumption, judge_share, decision_period, trading_end
             )).await;
     }
+    async fn get_market(&self, id: &str) -> Result<Market, MercadoError> {
+        if let Some(row) = get_rows(self.process(format!("SELECT * FROM {}", id)).await)
+            .unwrap()
+            .pop()
+        {
+            Ok(Market {
+                assumption: row.get("assumption").unwrap().clone().as_string(),
+                trading_end: row.get("trading_end").unwrap().clone().as_datetime(),
+                decision_period: row.get("decision_period").unwrap().clone().as_duration(),
+                judge_share: row.get("judge_share").unwrap().clone().as_float(),
+            })
+        } else {
+            return Err(MercadoError::MarketDoesntExist);
+        }
+    }
     async fn make_bet(&self, user: &str, market: &str, option: &str, amount: Sats) {
         self.process(format!(
             "CREATE bet SET user = '{}', market = '{}', option = '{}', amount = {};",
             user, market, option, amount
         ))
         .await;
+    }
+    async fn cancel_bet(&self, id: &str) -> Result<(), MercadoError> {
+        let bet = self.get_bet(id).await?;
+        let market = self
+            .get_market(format!("market:{}", bet.market).as_str())
+            .await?;
+        if market.trading_end < Utc::now().into() {
+            return Err(MercadoError::TradingStopped);
+        }
+        self.process(format!("DELETE {};", id)).await;
+        Ok(())
+    }
+    async fn get_bet(&self, id: &str) -> Result<Bet, MercadoError> {
+        if let Some(row) = get_rows(self.process(format!("SELECT * FROM {}", id)).await)
+            .unwrap()
+            .pop()
+        {
+            Ok(Bet {
+                id: row.get("id").unwrap().clone().as_string(),
+                user: row.get("user").unwrap().clone().as_string(),
+                market: row.get("market").unwrap().clone().as_string(),
+                option: row.get("option").unwrap().clone().as_string(),
+                amount: row.get("amount").unwrap().clone().as_int(),
+            })
+        } else {
+            return Err(MercadoError::BetDoesntExist);
+        }
     }
     async fn get_user_bets(&self, user: &str) -> Result<Vec<Bet>, MercadoError> {
         let response = self
@@ -85,10 +128,12 @@ impl DB {
         let rows = get_rows(response).unwrap();
         let mut bets: Vec<Bet> = vec![];
         for row in rows {
+            let id = row.get("id").unwrap().clone().as_string();
             let market = row.get("market").unwrap().clone().as_string();
             let option = row.get("option").unwrap().clone().as_string();
             let amount = row.get("amount").unwrap().clone().as_int();
             bets.push(Bet {
+                id,
                 user: user.to_string(),
                 market,
                 option,
@@ -104,10 +149,12 @@ impl DB {
         let rows = get_rows(response).unwrap();
         let mut bets: Vec<Bet> = vec![];
         for row in rows {
+            let id = row.get("id").unwrap().clone().as_string();
             let user = row.get("user").unwrap().clone().as_string();
             let option = row.get("option").unwrap().clone().as_string();
             let amount = row.get("amount").unwrap().clone().as_int();
             bets.push(Bet {
+                id,
                 market: market.to_string(),
                 user,
                 option,
@@ -183,31 +230,19 @@ mod test {
             "hobby",
             "Hello",
             0.01,
-            Duration::default(),
+            SDuration::default(),
             Datetime::default(),
         )
         .await;
         db.make_bet("haos", "hobby", "World", 1).await;
         let bets = db.get_user_bets("haos").await.unwrap();
-        assert_eq!(
-            vec![Bet {
-                user: "haos".to_string(),
-                market: "hobby".to_string(),
-                option: "World".to_string(),
-                amount: 1,
-            }],
-            bets
-        );
-        let bets = db.get_market_bets("hobby").await.unwrap();
-        assert_eq!(
-            vec![Bet {
-                user: "haos".to_string(),
-                market: "hobby".to_string(),
-                option: "World".to_string(),
-                amount: 1,
-            }],
-            bets
-        );
+        assert_eq!(bets.len(), 1);
+        let mut bets = db.get_market_bets("hobby").await.unwrap();
+        assert_eq!(bets.len(), 1);
+        let id = bets.pop().unwrap().id;
+        db.cancel_bet(id.as_str()).await;
+        let bets = db.get_user_bets("haos").await.unwrap();
+        assert_eq!(bets.len(), 0);
     }
     #[tokio::test]
     async fn try_to_steal() {
@@ -223,5 +258,22 @@ mod test {
         let db = DB::new().await;
         let result = db.withdraw_funds("haos", 110).await;
         assert_eq!(Err(MercadoError::UserDoesntExist), result);
+    }
+    #[tokio::test]
+    async fn cancel_bet_from_stopped_market() {
+        let db = DB::new().await;
+        db.add_user("haos").await;
+        db.create_market(
+            "hobby",
+            "Hello",
+            0.01,
+            SDuration::default(),
+            (Utc::now() - Duration::days(1)).into(),
+        )
+        .await;
+        db.make_bet("haos", "hobby", "World", 1).await;
+        let bet = db.get_user_bets("haos").await.unwrap().pop().unwrap();
+        let result = db.cancel_bet(bet.id.as_str()).await;
+        assert_eq!(Err(MercadoError::TradingStopped), result);
     }
 }

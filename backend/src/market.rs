@@ -1,8 +1,7 @@
 use crate::db::DB;
-use chrono::{DateTime, Duration, Utc};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
-use surrealdb::sql::Id;
+use surrealdb::sql::{Datetime, Duration, Id};
 
 pub type Sats = i64;
 
@@ -21,17 +20,17 @@ pub enum FundState {
 }
 #[derive(Debug, PartialEq)]
 pub struct Bet {
+    pub id: String,
     pub user: String,
     pub market: String,
     pub option: String,
     pub amount: Sats,
 }
-pub struct PredictionMarket {
-    assumption: String,
-    trading_end: DateTime<Utc>,
-    decision_period: Duration,
-    state: MarketState,
-    judges: Vec<Id>,
+pub struct Market {
+    pub assumption: String,
+    pub trading_end: Datetime,
+    pub decision_period: Duration,
+    pub judge_share: f64,
 }
 pub enum MarketState {
     Created,
@@ -57,30 +56,6 @@ pub struct User {
     pub id: String,
     pub sats: Sats,
 }
-impl PredictionMarket {
-    fn new(
-        question: String,
-        trading_end: DateTime<Utc>,
-        judges: Vec<Id>,
-    ) -> Result<Self, MercadoError> {
-        if judges.len() < 3 {
-            return Err(MercadoError::NotEnoughJudges);
-        }
-        if judges.len() % 2 == 0 {
-            return Err(MercadoError::EvenJudgeAmount);
-        }
-        if trading_end < Utc::now() {
-            return Err(MercadoError::TradingEndToEarly);
-        }
-        Ok(Self {
-            assumption: question,
-            trading_end,
-            state: MarketState::Created,
-            judges,
-            decision_period: todo!(),
-        })
-    }
-}
 #[derive(Debug, Serialize, Deserialize, PartialEq)]
 pub enum MercadoError {
     NotEnoughJudges,
@@ -94,4 +69,5 @@ pub enum MercadoError {
     NominationAlreadyAccepted,
     QueryFailed,
     WrongQueryResponseStructure,
+    TradingStopped,
 }
