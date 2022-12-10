@@ -1,10 +1,10 @@
 use log::{info, warn};
 use tonic::{transport::Server, Request, Response, Status};
 
+use crate::market::MercadoError;
 use crate::mercado::Mercado;
 use hello_world::api_server::{Api, ApiServer};
-use hello_world::{CreateUser, FundChange, GenericResponse};
-use crate::market::MercadoError;
+use hello_world::{CreateUser, DepositRequest, GenericResponse, WithdrawRequest};
 
 mod market;
 mod mercado;
@@ -28,10 +28,12 @@ impl Api for MyApi {
         request: Request<CreateUser>,
     ) -> Result<Response<GenericResponse>, Status> {
         let request = request.into_inner();
-        if let Err(MercadoError::UserAlreadyExists) = self.market.add_user(request.username.as_str()).await {
+        if let Err(MercadoError::UserAlreadyExists) =
+            self.market.add_user(request.username.as_str()).await
+        {
             let message = format!("User {} already exists", request.username);
             warn!("{}", message);
-            return Err(Status::already_exists(message))
+            return Err(Status::already_exists(message));
         }
         let message = format!("Created user {}", request.username);
         info!("{}", message);
@@ -39,9 +41,12 @@ impl Api for MyApi {
     }
     async fn deposit(
         &self,
-        request: Request<FundChange>,
+        request: Request<DepositRequest>,
     ) -> Result<Response<GenericResponse>, Status> {
         let request = request.into_inner();
+        self.market
+            .deposit_funds(&request.user, request.amount.into())
+            .await;
         let message = format!(
             "Deposited {} Sats for user {}",
             request.amount, request.user
@@ -51,9 +56,18 @@ impl Api for MyApi {
     }
     async fn withdraw(
         &self,
-        request: Request<FundChange>,
+        request: Request<WithdrawRequest>,
     ) -> Result<Response<GenericResponse>, Status> {
         let request = request.into_inner();
+        if let Err(e) = self
+            .market
+            .withdraw_funds(&request.user, request.amount.into())
+            .await
+        {
+            let message = format!("{:?}", e);
+            warn!("{}", message);
+            return Err(Status::unknown(message));
+        }
         let message = format!(
             "Withdrawn {} Sats for user {}",
             request.amount, request.user
@@ -77,6 +91,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     Ok(())
 }
 
+#[allow(unused)]
 #[cfg(test)]
 mod test {
     use super::*;

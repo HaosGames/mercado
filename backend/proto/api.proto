@@ -3,15 +3,21 @@ package api;
 
 service Api {
     rpc create_user (CreateUser) returns (GenericResponse);
-    rpc deposit (FundChange) returns (GenericResponse);
-    rpc withdraw (FundChange) returns (GenericResponse);
+    rpc deposit (DepositRequest) returns (GenericResponse);
+    rpc withdraw (WithdrawRequest) returns (GenericResponse);
 }
 
 message CreateUser {
     string username = 1;
 }
 
-message FundChange {
+
+message DepositRequest {
+    string user = 1;
+    uint32 amount = 2;
+}
+
+message WithdrawRequest {
     string user = 1;
     uint32 amount = 2;
 }
