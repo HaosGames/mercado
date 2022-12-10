@@ -15,7 +15,10 @@ impl Mercado {
     pub async fn new() -> Self {
         let db = Datastore::new("memory").await.unwrap();
         let session = Session::for_kv();
-        Self { db, db_session: session }
+        Self {
+            db,
+            db_session: session,
+        }
     }
     async fn add_user(&self, id: &str) {
         self.process(format!("CREATE user:{} SET sats = 0;", strip_id(&id)))
@@ -30,13 +33,11 @@ impl Mercado {
         .await;
     }
     async fn withdraw_funds(&self, user: &str, amount: Sats) -> Result<(), MercadoError> {
-        if let Ok(funds) = self.get_funds(user).await {
-            if funds < amount {
-                return Err(MercadoError::NotEnoughFunds);
-            }
-        } else {
-            return Err(MercadoError::UserDoesntExist);
+        let funds = self.get_funds(user).await?;
+        if funds < amount {
+            return Err(MercadoError::NotEnoughFunds);
         }
+
         self.process(format!(
             "UPDATE user:{} SET sats -= {};",
             strip_id(&user),
@@ -49,7 +50,11 @@ impl Mercado {
         let response = self
             .process(format!("SELECT sats FROM user:{};", strip_id(&user),))
             .await;
-        let row = get_rows(response).unwrap().pop().unwrap();
+        let row = if let Some(user) = get_rows(response).unwrap().pop() {
+            user
+        } else {
+            return Err(MercadoError::UserDoesntExist);
+        };
         let result = if let Value::Number(Number::Int(sats)) = row.get("sats").unwrap() {
             *sats
         } else {
@@ -217,7 +222,7 @@ mod test {
         let market = Mercado::new().await;
         market.add_user("haos").await;
         market.deposit_funds("haos", 100).await;
-        assert_eq!(Ok(()),market.withdraw_funds("haos", 50).await);
+        assert_eq!(Ok(()), market.withdraw_funds("haos", 50).await);
         let funds = market.get_funds("haos").await.unwrap();
         assert_eq!(funds, 50);
     }
@@ -225,14 +230,15 @@ mod test {
     async fn use_db_bets() {
         let market = Mercado::new().await;
         market.add_user("haos").await;
-        market.create_market(
-            "hobby",
-            "Hello",
-            0.01,
-            DBDuration::default(),
-            (Utc::now() + Duration::days(1)).into(),
-        )
-        .await;
+        market
+            .create_market(
+                "hobby",
+                "Hello",
+                0.01,
+                DBDuration::default(),
+                (Utc::now() + Duration::days(1)).into(),
+            )
+            .await;
         market.make_bet("haos", "hobby", "World", 1).await;
         let bets = market.get_user_bets("haos").await.unwrap();
         assert_eq!(bets.len(), 1);
@@ -251,7 +257,6 @@ mod test {
         let result = market.withdraw_funds("haos", 110).await;
         assert_eq!(Err(MercadoError::NotEnoughFunds), result);
     }
-    #[ignore]
     #[tokio::test]
     async fn withdraw_from_non_user() {
         let market = Mercado::new().await;
@@ -262,14 +267,15 @@ mod test {
     async fn cancel_bet_from_stopped_market() {
         let market = Mercado::new().await;
         market.add_user("haos").await;
-        market.create_market(
-            "hobby",
-            "Hello",
-            0.01,
-            DBDuration::default(),
-            (Utc::now() - Duration::days(1)).into(),
-        )
-        .await;
+        market
+            .create_market(
+                "hobby",
+                "Hello",
+                0.01,
+                DBDuration::default(),
+                (Utc::now() - Duration::days(1)).into(),
+            )
+            .await;
         market.make_bet("haos", "hobby", "World", 1).await;
         let bet = market.get_user_bets("haos").await.unwrap().pop().unwrap();
         let result = market.cancel_bet(bet.id.as_str()).await;
