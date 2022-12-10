@@ -20,11 +20,17 @@ impl Mercado {
             db_session: session,
         }
     }
-    async fn add_user(&self, id: &str) {
-        self.process(format!("CREATE user:{} SET sats = 0;", strip_id(&id)))
-            .await;
+    pub async fn add_user(&self, id: &str) -> Result<(), MercadoError> {
+        if let Err(surrealdb::Error::RecordExists { .. }) = self
+            .process(format!("CREATE user:{} SET sats = 0;", strip_id(&id)))
+            .await
+            .result
+        {
+            return Err(MercadoError::UserAlreadyExists);
+        }
+        Ok(())
     }
-    async fn deposit_funds(&self, user: &str, amount: Sats) {
+    pub async fn deposit_funds(&self, user: &str, amount: Sats) {
         self.process(format!(
             "UPDATE user:{} SET sats += {};",
             strip_id(&user),
@@ -32,7 +38,7 @@ impl Mercado {
         ))
         .await;
     }
-    async fn withdraw_funds(&self, user: &str, amount: Sats) -> Result<(), MercadoError> {
+    pub async fn withdraw_funds(&self, user: &str, amount: Sats) -> Result<(), MercadoError> {
         let funds = self.get_funds(user).await?;
         if funds < amount {
             return Err(MercadoError::NotEnoughFunds);
@@ -46,7 +52,7 @@ impl Mercado {
         .await;
         Ok(())
     }
-    async fn get_funds(&self, user: &str) -> Result<Sats, MercadoError> {
+    pub async fn get_funds(&self, user: &str) -> Result<Sats, MercadoError> {
         let response = self
             .process(format!("SELECT sats FROM user:{};", strip_id(&user),))
             .await;
@@ -62,7 +68,7 @@ impl Mercado {
         };
         Ok(result)
     }
-    async fn create_market(
+    pub async fn create_market(
         &self,
         id: &str,
         assumption: &str,
@@ -77,7 +83,7 @@ impl Mercado {
                 assumption, judge_share, decision_period, trading_end
             )).await;
     }
-    async fn get_market(&self, id: &str) -> Result<Market, MercadoError> {
+    pub async fn get_market(&self, id: &str) -> Result<Market, MercadoError> {
         if let Some(row) = get_rows(self.process(format!("SELECT * FROM {}", id)).await)
             .unwrap()
             .pop()
@@ -92,14 +98,14 @@ impl Mercado {
             return Err(MercadoError::MarketDoesntExist);
         }
     }
-    async fn make_bet(&self, user: &str, market: &str, option: &str, amount: Sats) {
+    pub async fn make_bet(&self, user: &str, market: &str, option: &str, amount: Sats) {
         self.process(format!(
             "CREATE bet SET user = '{}', market = '{}', option = '{}', amount = {};",
             user, market, option, amount
         ))
         .await;
     }
-    async fn cancel_bet(&self, id: &str) -> Result<(), MercadoError> {
+    pub async fn cancel_bet(&self, id: &str) -> Result<(), MercadoError> {
         let bet = self.get_bet(id).await?;
         let market = self
             .get_market(format!("market:{}", bet.market).as_str())
@@ -110,7 +116,7 @@ impl Mercado {
         self.process(format!("DELETE {};", id)).await;
         Ok(())
     }
-    async fn get_bet(&self, id: &str) -> Result<Bet, MercadoError> {
+    pub async fn get_bet(&self, id: &str) -> Result<Bet, MercadoError> {
         if let Some(row) = get_rows(self.process(format!("SELECT * FROM {}", id)).await)
             .unwrap()
             .pop()
@@ -126,7 +132,7 @@ impl Mercado {
             return Err(MercadoError::BetDoesntExist);
         }
     }
-    async fn get_user_bets(&self, user: &str) -> Result<Vec<Bet>, MercadoError> {
+    pub async fn get_user_bets(&self, user: &str) -> Result<Vec<Bet>, MercadoError> {
         let response = self
             .process(format!("SELECT * FROM bet WHERE user = '{}';", user,))
             .await;
@@ -147,7 +153,7 @@ impl Mercado {
         }
         Ok(bets)
     }
-    async fn get_market_bets(&self, market: &str) -> Result<Vec<Bet>, MercadoError> {
+    pub async fn get_market_bets(&self, market: &str) -> Result<Vec<Bet>, MercadoError> {
         let response = self
             .process(format!("SELECT * FROM bet WHERE market = '{}';", market,))
             .await;
@@ -168,7 +174,7 @@ impl Mercado {
         }
         Ok(bets)
     }
-    async fn get_user(&self, user: &str) -> Result<User, MercadoError> {
+    pub async fn get_user(&self, user: &str) -> Result<User, MercadoError> {
         let response = self.process(format!("SELECT * FROM user:{};", user,)).await;
         let rows = get_rows(response).unwrap();
         for row in rows {
@@ -183,11 +189,8 @@ impl Mercado {
     async fn process(&self, query: String) -> Response {
         let query =
             parse(("USE NS mercado DB mercado; ".to_string() + query.as_str()).as_str()).unwrap();
-        let mut responses = self
-            .db
-            .process(query, &self.db_session, None, false)
-            .await
-            .unwrap();
+        let mut responses =
+            dbg!(self.db.process(query, &self.db_session, None, false).await).unwrap();
         assert_eq!(responses.len(), 2);
         responses.pop().unwrap()
     }
@@ -280,5 +283,14 @@ mod test {
         let bet = market.get_user_bets("haos").await.unwrap().pop().unwrap();
         let result = market.cancel_bet(bet.id.as_str()).await;
         assert_eq!(Err(MercadoError::TradingStopped), result);
+    }
+    #[tokio::test]
+    async fn create_user_twice() {
+        let market = Mercado::new().await;
+        assert!(market.add_user("haos").await.is_ok());
+        assert_eq!(
+            Err(MercadoError::UserAlreadyExists),
+            market.add_user("haos").await
+        );
     }
 }

@@ -61,6 +61,7 @@ pub enum MercadoError {
     TradingEndToEarly,
     NotEnoughFunds,
     UserDoesntExist,
+    UserAlreadyExists,
     BetDoesntExist,
     MarketDoesntExist,
     JudgeDoesntExist,

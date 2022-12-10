@@ -1,20 +1,42 @@
-use log::info;
+use log::{info, warn};
 use tonic::{transport::Server, Request, Response, Status};
 
+use crate::mercado::Mercado;
 use hello_world::api_server::{Api, ApiServer};
-use hello_world::{FundChange, GenericResponse};
+use hello_world::{CreateUser, FundChange, GenericResponse};
+use crate::market::MercadoError;
 
-mod mercado;
 mod market;
+mod mercado;
 pub mod hello_world {
     tonic::include_proto!("api");
 }
 
-#[derive(Debug, Default)]
-pub struct MyApi {}
+pub struct MyApi {
+    market: Mercado,
+}
+impl MyApi {
+    fn new(market: Mercado) -> Self {
+        Self { market }
+    }
+}
 
 #[tonic::async_trait]
 impl Api for MyApi {
+    async fn create_user(
+        &self,
+        request: Request<CreateUser>,
+    ) -> Result<Response<GenericResponse>, Status> {
+        let request = request.into_inner();
+        if let Err(MercadoError::UserAlreadyExists) = self.market.add_user(request.username.as_str()).await {
+            let message = format!("User {} already exists", request.username);
+            warn!("{}", message);
+            return Err(Status::already_exists(message))
+        }
+        let message = format!("Created user {}", request.username);
+        info!("{}", message);
+        Ok(Response::new(GenericResponse { message }))
+    }
     async fn deposit(
         &self,
         request: Request<FundChange>,
@@ -44,10 +66,11 @@ impl Api for MyApi {
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let addr = "[::1]:50051".parse()?;
-    let greeter = MyApi::default();
+    let market = Mercado::new().await;
+    let api = MyApi::new(market);
 
     Server::builder()
-        .add_service(ApiServer::new(greeter))
+        .add_service(ApiServer::new(api))
         .serve(addr)
         .await?;
 

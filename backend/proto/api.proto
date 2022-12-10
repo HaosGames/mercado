@@ -2,8 +2,13 @@ syntax = "proto3";
 package api;
 
 service Api {
+    rpc create_user (CreateUser) returns (GenericResponse);
     rpc deposit (FundChange) returns (GenericResponse);
     rpc withdraw (FundChange) returns (GenericResponse);
+}
+
+message CreateUser {
+    string username = 1;
 }
 
 message FundChange {
