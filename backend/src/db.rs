@@ -67,7 +67,7 @@ impl Mercado {
     ) {
         self.process(
             format!(
-                "CREATE market:{} SET assumption = '{}', judge_share = {}, decision_period = '{}', trading_end = '{}';",
+                "CREATE market:{} SET assumption = '{}', judge_share = {}, decision_period = {}, trading_end = {};",
                 strip_id(&id),
                 assumption, judge_share, decision_period, trading_end
             )).await;
@@ -99,7 +99,7 @@ impl Mercado {
         let market = self
             .get_market(format!("market:{}", bet.market).as_str())
             .await?;
-        if market.trading_end < Utc::now().into() {
+        if market.trading_end < Datetime::default() {
             return Err(MercadoError::TradingStopped);
         }
         self.process(format!("DELETE {};", id)).await;
