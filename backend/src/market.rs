@@ -1,6 +1,4 @@
-use crate::db::DB;
 use serde::{Deserialize, Serialize};
-use std::collections::HashMap;
 use surrealdb::sql::{Datetime, Duration, Id};
 
 pub type Sats = i64;

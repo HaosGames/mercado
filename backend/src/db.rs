@@ -1,21 +1,21 @@
 use crate::market::{Bet, Market, MercadoError, Sats, User};
 use chrono::{Duration, Utc};
 use std::collections::BTreeMap;
-use surrealdb::sql::{Array, Datetime, Duration as SDuration, Number, Object, Strand};
+use surrealdb::sql::{Array, Datetime, Duration as DBDuration, Number, Object};
 use surrealdb::{
     sql::{parse, Value},
     Datastore, Response, Session,
 };
 
-pub struct DB {
+pub struct Mercado {
     db: Datastore,
-    session: Session,
+    db_session: Session,
 }
-impl DB {
+impl Mercado {
     pub async fn new() -> Self {
         let db = Datastore::new("memory").await.unwrap();
         let session = Session::for_kv();
-        Self { db, session }
+        Self { db, db_session: session }
     }
     async fn add_user(&self, id: &str) {
         self.process(format!("CREATE user:{} SET sats = 0;", strip_id(&id)))
@@ -62,7 +62,7 @@ impl DB {
         id: &str,
         assumption: &str,
         judge_share: f32,
-        decision_period: SDuration,
+        decision_period: DBDuration,
         trading_end: Datetime,
     ) {
         self.process(
@@ -173,7 +173,6 @@ impl DB {
                 sats,
             });
         }
-
         Err(MercadoError::UserDoesntExist)
     }
     async fn process(&self, query: String) -> Response {
@@ -181,7 +180,7 @@ impl DB {
             parse(("USE NS mercado DB mercado; ".to_string() + query.as_str()).as_str()).unwrap();
         let mut responses = self
             .db
-            .process(query, &self.session, None, false)
+            .process(query, &self.db_session, None, false)
             .await
             .unwrap();
         assert_eq!(responses.len(), 2);
@@ -215,65 +214,65 @@ mod test {
 
     #[tokio::test]
     async fn use_db_funds() {
-        let db = DB::new().await;
-        db.add_user("haos").await;
-        db.deposit_funds("haos", 100).await;
-        db.withdraw_funds("haos", 50).await;
-        let funds = db.get_funds("haos").await.unwrap();
+        let market = Mercado::new().await;
+        market.add_user("haos").await;
+        market.deposit_funds("haos", 100).await;
+        assert_eq!(Ok(()),market.withdraw_funds("haos", 50).await);
+        let funds = market.get_funds("haos").await.unwrap();
         assert_eq!(funds, 50);
     }
     #[tokio::test]
     async fn use_db_bets() {
-        let db = DB::new().await;
-        db.add_user("haos").await;
-        db.create_market(
+        let market = Mercado::new().await;
+        market.add_user("haos").await;
+        market.create_market(
             "hobby",
             "Hello",
             0.01,
-            SDuration::default(),
-            Datetime::default(),
+            DBDuration::default(),
+            (Utc::now() + Duration::days(1)).into(),
         )
         .await;
-        db.make_bet("haos", "hobby", "World", 1).await;
-        let bets = db.get_user_bets("haos").await.unwrap();
+        market.make_bet("haos", "hobby", "World", 1).await;
+        let bets = market.get_user_bets("haos").await.unwrap();
         assert_eq!(bets.len(), 1);
-        let mut bets = db.get_market_bets("hobby").await.unwrap();
+        let mut bets = market.get_market_bets("hobby").await.unwrap();
         assert_eq!(bets.len(), 1);
         let id = bets.pop().unwrap().id;
-        db.cancel_bet(id.as_str()).await;
-        let bets = db.get_user_bets("haos").await.unwrap();
+        assert_eq!(Ok(()), market.cancel_bet(id.as_str()).await);
+        let bets = market.get_user_bets("haos").await.unwrap();
         assert_eq!(bets.len(), 0);
     }
     #[tokio::test]
     async fn try_to_steal() {
-        let db = DB::new().await;
-        db.add_user("haos").await;
-        db.deposit_funds("haos", 100).await;
-        let result = db.withdraw_funds("haos", 110).await;
+        let market = Mercado::new().await;
+        market.add_user("haos").await;
+        market.deposit_funds("haos", 100).await;
+        let result = market.withdraw_funds("haos", 110).await;
         assert_eq!(Err(MercadoError::NotEnoughFunds), result);
     }
     #[ignore]
     #[tokio::test]
     async fn withdraw_from_non_user() {
-        let db = DB::new().await;
-        let result = db.withdraw_funds("haos", 110).await;
+        let market = Mercado::new().await;
+        let result = market.withdraw_funds("haos", 110).await;
         assert_eq!(Err(MercadoError::UserDoesntExist), result);
     }
     #[tokio::test]
     async fn cancel_bet_from_stopped_market() {
-        let db = DB::new().await;
-        db.add_user("haos").await;
-        db.create_market(
+        let market = Mercado::new().await;
+        market.add_user("haos").await;
+        market.create_market(
             "hobby",
             "Hello",
             0.01,
-            SDuration::default(),
+            DBDuration::default(),
             (Utc::now() - Duration::days(1)).into(),
         )
         .await;
-        db.make_bet("haos", "hobby", "World", 1).await;
-        let bet = db.get_user_bets("haos").await.unwrap().pop().unwrap();
-        let result = db.cancel_bet(bet.id.as_str()).await;
+        market.make_bet("haos", "hobby", "World", 1).await;
+        let bet = market.get_user_bets("haos").await.unwrap().pop().unwrap();
+        let result = market.cancel_bet(bet.id.as_str()).await;
         assert_eq!(Err(MercadoError::TradingStopped), result);
     }
 }
