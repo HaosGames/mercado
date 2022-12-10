@@ -1,32 +1,20 @@
 use log::info;
 use tonic::{transport::Server, Request, Response, Status};
 
-use hello_world::greeter_server::{Greeter, GreeterServer};
-use hello_world::{FundChange, GenericResponse, HelloReply, HelloRequest};
+use hello_world::api_server::{Api, ApiServer};
+use hello_world::{FundChange, GenericResponse};
 
-mod db;
+mod mercado;
 mod market;
 pub mod hello_world {
-    tonic::include_proto!("helloworld");
+    tonic::include_proto!("api");
 }
 
 #[derive(Debug, Default)]
-pub struct MyGreeter {}
+pub struct MyApi {}
 
 #[tonic::async_trait]
-impl Greeter for MyGreeter {
-    async fn say_hello(
-        &self,
-        request: Request<HelloRequest>,
-    ) -> Result<Response<HelloReply>, Status> {
-        println!("Got a request: {:?}", request);
-
-        let reply = hello_world::HelloReply {
-            message: format!("Hello {}!", request.into_inner().name).into(),
-        };
-
-        Ok(Response::new(reply))
-    }
+impl Api for MyApi {
     async fn deposit(
         &self,
         request: Request<FundChange>,
@@ -56,10 +44,10 @@ impl Greeter for MyGreeter {
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let addr = "[::1]:50051".parse()?;
-    let greeter = MyGreeter::default();
+    let greeter = MyApi::default();
 
     Server::builder()
-        .add_service(GreeterServer::new(greeter))
+        .add_service(ApiServer::new(greeter))
         .serve(addr)
         .await?;
 
@@ -67,7 +55,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 }
 
 #[cfg(test)]
-mod tests {
+mod test {
     use super::*;
 
     #[tokio::test]

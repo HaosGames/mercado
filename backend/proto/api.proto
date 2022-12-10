@@ -1,0 +1,16 @@
+syntax = "proto3";
+package api;
+
+service Api {
+    rpc deposit (FundChange) returns (GenericResponse);
+    rpc withdraw (FundChange) returns (GenericResponse);
+}
+
+message FundChange {
+    string user = 1;
+    uint32 amount = 2;
+}
+
+message GenericResponse {
+    string message = 1;
+}
