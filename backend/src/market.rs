@@ -1,4 +1,5 @@
 use serde::{Deserialize, Serialize};
+use std::fmt::{Display, Formatter};
 use surrealdb::sql::{Datetime, Duration, Id};
 
 pub type Sats = i64;
@@ -64,9 +65,17 @@ pub enum MercadoError {
     UserAlreadyExists,
     BetDoesntExist,
     MarketDoesntExist,
+    MarketAlreadyExists,
     JudgeDoesntExist,
     NominationAlreadyAccepted,
     QueryFailed,
     WrongQueryResponseStructure,
     TradingStopped,
+    JudgeShareNotInRange,
+    DecisionPeriodToShort,
+}
+impl Display for MercadoError {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{:?}", self)
+    }
 }

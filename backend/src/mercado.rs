@@ -1,7 +1,7 @@
 use crate::market::{Bet, Market, MercadoError, Sats, User};
-use chrono::{Duration, Utc};
+use chrono::{Utc};
 use std::collections::BTreeMap;
-use surrealdb::sql::{Array, Datetime, Duration as DBDuration, Number, Object};
+use surrealdb::sql::{Array, Datetime, Number, Object};
 use surrealdb::{
     sql::{parse, Value},
     Datastore, Response, Session,
@@ -73,15 +73,27 @@ impl Mercado {
         id: &str,
         assumption: &str,
         judge_share: f32,
-        decision_period: DBDuration,
+        decision_period: surrealdb::sql::Duration,
         trading_end: Datetime,
-    ) {
-        self.process(
+    ) -> Result<(), MercadoError> {
+        if judge_share > 0.1 || judge_share < 0.00001 {
+            return Err(MercadoError::JudgeShareNotInRange)
+        }
+        if decision_period < std::time::Duration::from_secs(86400).into() {
+            return Err(MercadoError::DecisionPeriodToShort)
+        }
+        if trading_end < (Utc::now() + chrono::Duration::days(1)).into() {
+            return Err(MercadoError::TradingEndToEarly)
+        }
+        if let Err(surrealdb::Error::RecordExists { .. }) = self.process(
             format!(
                 "CREATE market:{} SET assumption = '{}', judge_share = {}, decision_period = {}, trading_end = {};",
                 strip_id(&id),
                 assumption, judge_share, decision_period, trading_end
-            )).await;
+            )).await.result {
+            return Err(MercadoError::MarketAlreadyExists)
+        }
+        Ok(())
     }
     pub async fn get_market(&self, id: &str) -> Result<Market, MercadoError> {
         if let Some(row) = get_rows(self.process(format!("SELECT * FROM {}", id)).await)
@@ -190,7 +202,7 @@ impl Mercado {
         let query =
             parse(("USE NS mercado DB mercado; ".to_string() + query.as_str()).as_str()).unwrap();
         let mut responses =
-            dbg!(self.db.process(query, &self.db_session, None, false).await).unwrap();
+            self.db.process(query, &self.db_session, None, false).await.unwrap();
         assert_eq!(responses.len(), 2);
         responses.pop().unwrap()
     }
@@ -233,15 +245,15 @@ mod test {
     async fn use_db_bets() {
         let market = Mercado::new().await;
         market.add_user("haos").await;
-        market
+        assert_eq!(Ok(()), market
             .create_market(
                 "hobby",
                 "Hello",
                 0.01,
-                DBDuration::default(),
-                (Utc::now() + Duration::days(1)).into(),
+                std::time::Duration::from_secs(86400).into(),
+                (Utc::now() + chrono::Duration::days(2)).into(),
             )
-            .await;
+            .await);
         market.make_bet("haos", "hobby", "World", 1).await;
         let bets = market.get_user_bets("haos").await.unwrap();
         assert_eq!(bets.len(), 1);
@@ -270,16 +282,17 @@ mod test {
     async fn cancel_bet_from_stopped_market() {
         let market = Mercado::new().await;
         market.add_user("haos").await;
-        market
+        assert_eq!(Ok(()), market
             .create_market(
                 "hobby",
                 "Hello",
                 0.01,
-                DBDuration::default(),
-                (Utc::now() - Duration::days(1)).into(),
+                std::time::Duration::from_secs(86400).into(),
+                (Utc::now() + chrono::Duration::days(2)).into(),
             )
-            .await;
+            .await);
         market.make_bet("haos", "hobby", "World", 1).await;
+        dbg!(market.process(format!("UPDATE market:hobby SET trading_end = {};", surrealdb::sql::Datetime::from(Utc::now() - chrono::Duration::days(1)))).await);
         let bet = market.get_user_bets("haos").await.unwrap().pop().unwrap();
         let result = market.cancel_bet(bet.id.as_str()).await;
         assert_eq!(Err(MercadoError::TradingStopped), result);

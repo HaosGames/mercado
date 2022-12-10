@@ -1,10 +1,14 @@
-use log::{info, warn};
+use chrono::Duration;
+use log::{debug, info, warn};
 use tonic::{transport::Server, Request, Response, Status};
 
 use crate::market::MercadoError;
 use crate::mercado::Mercado;
 use hello_world::api_server::{Api, ApiServer};
-use hello_world::{CreateUser, DepositRequest, GenericResponse, WithdrawRequest};
+use hello_world::{
+    CreateMarketRequest, CreateUser, DepositRequest, GenericResponse, GetFundsRequest,
+    GetFundsResponse, WithdrawRequest,
+};
 
 mod market;
 mod mercado;
@@ -32,11 +36,11 @@ impl Api for MyApi {
             self.market.add_user(request.username.as_str()).await
         {
             let message = format!("User {} already exists", request.username);
-            warn!("{}", message);
+            debug!("{}", message);
             return Err(Status::already_exists(message));
         }
         let message = format!("Created user {}", request.username);
-        info!("{}", message);
+        debug!("{}", message);
         Ok(Response::new(GenericResponse { message }))
     }
     async fn deposit(
@@ -51,7 +55,7 @@ impl Api for MyApi {
             "Deposited {} Sats for user {}",
             request.amount, request.user
         );
-        info!("{}", message);
+        debug!("{}", message);
         Ok(Response::new(GenericResponse { message }))
     }
     async fn withdraw(
@@ -64,15 +68,53 @@ impl Api for MyApi {
             .withdraw_funds(&request.user, request.amount.into())
             .await
         {
-            let message = format!("{:?}", e);
-            warn!("{}", message);
-            return Err(Status::unknown(message));
+            warn!("{}", e.to_string());
+            return Err(Status::unknown(e.to_string()));
         }
         let message = format!(
             "Withdrawn {} Sats for user {}",
             request.amount, request.user
         );
-        info!("{}", message);
+        debug!("{}", message);
+        Ok(Response::new(GenericResponse { message }))
+    }
+    async fn get_funds(
+        &self,
+        request: Request<GetFundsRequest>,
+    ) -> Result<Response<GetFundsResponse>, Status> {
+        let request = request.into_inner();
+        let sats = match self.market.get_funds(&request.user).await {
+            Ok(sats) => sats,
+            Err(e) => {
+                warn!("{}", e.to_string());
+                return Err(Status::unknown(e.to_string()));
+            }
+        };
+        Ok(Response::new(GetFundsResponse {
+            sats: sats.try_into().unwrap(),
+        }))
+    }
+    async fn create_market(
+        &self,
+        request: Request<CreateMarketRequest>,
+    ) -> Result<Response<GenericResponse>, Status> {
+        let request = request.into_inner();
+        if let Err(e) = self
+            .market
+            .create_market(
+                request.id.as_str(), 
+                request.assumption.as_str(), 
+                request.judge_share, 
+                std::time::Duration::from_secs(request.decision_period_seconds.into()).into(),
+                request.trading_end.as_str().into()
+            )
+            .await
+        {
+            warn!("{}", e.to_string());
+            return Err(Status::unknown(e.to_string()));
+        };
+        let message = format!("Created market {}", request.id);
+        debug!("{}", message);
         Ok(Response::new(GenericResponse { message }))
     }
 }

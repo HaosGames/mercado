@@ -5,6 +5,8 @@ service Api {
     rpc create_user (CreateUser) returns (GenericResponse);
     rpc deposit (DepositRequest) returns (GenericResponse);
     rpc withdraw (WithdrawRequest) returns (GenericResponse);
+    rpc get_funds (GetFundsRequest) returns (GetFundsResponse);
+    rpc create_market (CreateMarketRequest) returns (GenericResponse);
 }
 
 message CreateUser {
@@ -22,6 +24,22 @@ message WithdrawRequest {
     uint32 amount = 2;
 }
 
+message GetFundsRequest {
+    string user = 1;
+}
+
+message GetFundsResponse {
+    uint32 sats = 1;
+}
+
 message GenericResponse {
     string message = 1;
+}
+
+message CreateMarketRequest {
+    string id = 1;
+    string assumption = 2;
+    float judge_share = 3;
+    string trading_end = 4;
+    uint32 decision_period_seconds = 5;
 }
