@@ -1,6 +1,7 @@
-use crate::market::{Bet, Market, MercadoError, Sats, User};
-use chrono::{Utc};
+use crate::market::{Bet, Judge, JudgeState, Market, MercadoError, Sats, User};
+use chrono::Utc;
 use std::collections::BTreeMap;
+use std::fmt::format;
 use surrealdb::sql::{Array, Datetime, Number, Object};
 use surrealdb::{
     sql::{parse, Value},
@@ -78,19 +79,19 @@ impl Mercado {
         judges: Vec<String>,
     ) -> Result<(), MercadoError> {
         if judge_share > 0.1 || judge_share < 0.00001 {
-            return Err(MercadoError::JudgeShareNotInRange)
+            return Err(MercadoError::JudgeShareNotInRange);
         }
         if decision_period < std::time::Duration::from_secs(86400).into() {
-            return Err(MercadoError::DecisionPeriodToShort)
+            return Err(MercadoError::DecisionPeriodToShort);
         }
         if trading_end < (Utc::now() + chrono::Duration::days(1)).into() {
-            return Err(MercadoError::TradingEndToEarly)
+            return Err(MercadoError::TradingEndToEarly);
         }
         if judges.len() < 3 {
-            return Err(MercadoError::NotEnoughJudges)
+            return Err(MercadoError::NotEnoughJudges);
         }
         if judges.len() % 2 == 0 {
-            return Err(MercadoError::EvenJudgeAmount)
+            return Err(MercadoError::EvenJudgeAmount);
         }
         for judge in &judges {
             self.get_user(judge.as_str()).await?;
@@ -104,7 +105,12 @@ impl Mercado {
             return Err(MercadoError::MarketAlreadyExists)
         }
         for judge in judges {
-            self.process(format!("CREATE judge SET user = {}, market = {}, state = 'Nominated'", judge, strip_id(&id))).await;
+            self.process(format!(
+                "CREATE judge SET user = '{}', market = '{}', state = 'Nominated', decision = null",
+                judge,
+                strip_id(&id)
+            ))
+            .await;
         }
         Ok(())
     }
@@ -122,6 +128,54 @@ impl Mercado {
         } else {
             return Err(MercadoError::MarketDoesntExist);
         }
+    }
+    pub async fn get_market_judges(&self, market: &str) -> Result<Vec<Judge>, MercadoError> {
+        let response = self
+            .process(format!(
+                "SELECT * FROM judge WHERE market = '{}' ORDER BY user",
+                market
+            ))
+            .await;
+        let rows = get_rows(response)?;
+        let mut judges = vec![];
+        for row in rows {
+            let decision = match row.get("decision").unwrap() {
+                Value::Null => None,
+                Value::Strand(strand) => Some(strand.0.clone()),
+                _ => None,
+            };
+            judges.push(Judge {
+                market: row.get("market").unwrap().clone().as_string(),
+                user: row.get("user").unwrap().clone().as_string(),
+                state: JudgeState::from(row.get("state").unwrap().clone().as_string()),
+                decision,
+            });
+        }
+        Ok(judges)
+    }
+    pub async fn get_user_judges(&self, user: &str) -> Result<Vec<Judge>, MercadoError> {
+        let response = self
+            .process(format!(
+                "SELECT * FROM judge WHERE user = '{}' ORDER BY market",
+                user
+            ))
+            .await;
+        let rows = get_rows(response)?;
+        let mut judges = vec![];
+        for row in rows {
+            let decision = match row.get("decision").unwrap() {
+                Value::Null => None,
+                Value::Strand(strand) => Some(strand.0.clone()),
+                _ => None,
+            };
+            judges.push(Judge {
+                market: row.get("market").unwrap().clone().as_string(),
+                user: row.get("user").unwrap().clone().as_string(),
+                state: JudgeState::from(row.get("state").unwrap().clone().as_string()),
+                decision,
+            });
+        }
+        Ok(judges)
     }
     pub async fn make_bet(&self, user: &str, market: &str, option: &str, amount: Sats) {
         self.process(format!(
@@ -214,8 +268,11 @@ impl Mercado {
     async fn process(&self, query: String) -> Response {
         let query =
             parse(("USE NS mercado DB mercado; ".to_string() + query.as_str()).as_str()).unwrap();
-        let mut responses =
-            self.db.process(query, &self.db_session, None, false).await.unwrap();
+        let mut responses = self
+            .db
+            .process(query, &self.db_session, None, false)
+            .await
+            .unwrap();
         assert_eq!(responses.len(), 2);
         responses.pop().unwrap()
     }
@@ -250,7 +307,7 @@ mod test {
         let market = Mercado::new().await;
         market.add_user("haos").await.unwrap();
         market.deposit_funds("haos", 100).await;
-        assert_eq!(Ok(()), market.withdraw_funds("haos", 50).await);
+        market.withdraw_funds("haos", 50).await.unwrap();
         let funds = market.get_funds("haos").await.unwrap();
         assert_eq!(funds, 50);
     }
@@ -261,23 +318,28 @@ mod test {
         market.add_user("judge1").await.unwrap();
         market.add_user("judge2").await.unwrap();
         market.add_user("judge3").await.unwrap();
-        assert_eq!(Ok(()), market
+        market
             .create_market(
                 "hobby",
                 "Hello",
                 0.01,
                 std::time::Duration::from_secs(86400).into(),
                 (Utc::now() + chrono::Duration::days(2)).into(),
-                vec!["judge1".to_string(), "judge2".to_string(), "judge3".to_string()]
+                vec![
+                    "judge1".to_string(),
+                    "judge2".to_string(),
+                    "judge3".to_string(),
+                ],
             )
-            .await);
+            .await
+            .unwrap();
         market.make_bet("haos", "hobby", "World", 1).await;
         let bets = market.get_user_bets("haos").await.unwrap();
         assert_eq!(bets.len(), 1);
         let mut bets = market.get_market_bets("hobby").await.unwrap();
         assert_eq!(bets.len(), 1);
         let id = bets.pop().unwrap().id;
-        assert_eq!(Ok(()), market.cancel_bet(id.as_str()).await);
+        market.cancel_bet(id.as_str()).await.unwrap();
         let bets = market.get_user_bets("haos").await.unwrap();
         assert_eq!(bets.len(), 0);
     }
@@ -302,18 +364,28 @@ mod test {
         market.add_user("judge1").await.unwrap();
         market.add_user("judge2").await.unwrap();
         market.add_user("judge3").await.unwrap();
-        assert_eq!(Ok(()), market
+        market
             .create_market(
                 "hobby",
                 "Hello",
                 0.01,
                 std::time::Duration::from_secs(86400).into(),
                 (Utc::now() + chrono::Duration::days(2)).into(),
-                vec!["judge1".to_string(), "judge2".to_string(), "judge3".to_string()]
+                vec![
+                    "judge1".to_string(),
+                    "judge2".to_string(),
+                    "judge3".to_string(),
+                ],
             )
-            .await);
+            .await
+            .unwrap();
         market.make_bet("haos", "hobby", "World", 1).await;
-        market.process(format!("UPDATE market:hobby SET trading_end = {};", surrealdb::sql::Datetime::from(Utc::now() - chrono::Duration::days(1)))).await;
+        market
+            .process(format!(
+                "UPDATE market:hobby SET trading_end = {};",
+                surrealdb::sql::Datetime::from(Utc::now() - chrono::Duration::days(1))
+            ))
+            .await;
         let bet = market.get_user_bets("haos").await.unwrap().pop().unwrap();
         let result = market.cancel_bet(bet.id.as_str()).await;
         assert_eq!(Err(MercadoError::TradingStopped), result);
@@ -325,6 +397,61 @@ mod test {
         assert_eq!(
             Err(MercadoError::UserAlreadyExists),
             market.add_user("haos").await
+        );
+    }
+    #[tokio::test]
+    async fn create_judges() {
+        let market = Mercado::new().await;
+        market.add_user("haos").await.unwrap();
+        market.add_user("judge1").await.unwrap();
+        market.add_user("judge2").await.unwrap();
+        market.add_user("judge3").await.unwrap();
+        market
+            .create_market(
+                "hobby",
+                "Hello",
+                0.01,
+                std::time::Duration::from_secs(86400).into(),
+                (Utc::now() + chrono::Duration::days(2)).into(),
+                vec![
+                    "judge1".to_string(),
+                    "judge2".to_string(),
+                    "judge3".to_string(),
+                ],
+            )
+            .await
+            .unwrap();
+        assert_eq!(
+            market.get_market_judges("hobby").await.unwrap(),
+            vec![
+                Judge {
+                    market: "hobby".to_string(),
+                    user: "judge1".to_string(),
+                    state: JudgeState::Nominated,
+                    decision: None,
+                },
+                Judge {
+                    market: "hobby".to_string(),
+                    user: "judge2".to_string(),
+                    state: JudgeState::Nominated,
+                    decision: None,
+                },
+                Judge {
+                    market: "hobby".to_string(),
+                    user: "judge3".to_string(),
+                    state: JudgeState::Nominated,
+                    decision: None,
+                }
+            ]
+        );
+        assert_eq!(
+            market.get_user_judges("judge2").await.unwrap(),
+            vec![Judge {
+                market: "hobby".to_string(),
+                user: "judge2".to_string(),
+                state: JudgeState::Nominated,
+                decision: None,
+            }]
         );
     }
 }

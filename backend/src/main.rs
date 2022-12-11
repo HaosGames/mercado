@@ -1,5 +1,4 @@
-use chrono::Duration;
-use log::{debug, info, warn};
+use log::{debug, warn};
 use tonic::{transport::Server, Request, Response, Status};
 
 use crate::market::MercadoError;
@@ -7,7 +6,7 @@ use crate::mercado::Mercado;
 use hello_world::api_server::{Api, ApiServer};
 use hello_world::{
     CreateMarketRequest, CreateUser, DepositRequest, GenericResponse, GetFundsRequest,
-    GetFundsResponse, WithdrawRequest,
+    GetFundsResponse, GetMarketRequest, GetMarketResponse, WithdrawRequest,
 };
 
 mod market;
@@ -102,12 +101,12 @@ impl Api for MyApi {
         if let Err(e) = self
             .market
             .create_market(
-                request.id.as_str(), 
-                request.assumption.as_str(), 
-                request.judge_share, 
+                request.id.as_str(),
+                request.assumption.as_str(),
+                request.judge_share,
                 std::time::Duration::from_secs(request.decision_period_seconds.into()).into(),
                 request.trading_end.as_str().into(),
-                request.judges
+                request.judges,
             )
             .await
         {
@@ -117,6 +116,25 @@ impl Api for MyApi {
         let message = format!("Created market {}", request.id);
         debug!("{}", message);
         Ok(Response::new(GenericResponse { message }))
+    }
+    async fn get_market(
+        &self,
+        request: Request<GetMarketRequest>,
+    ) -> Result<Response<GetMarketResponse>, Status> {
+        let request = request.into_inner();
+        let market = match self.market.get_market(request.id.as_str()).await {
+            Ok(market) => market,
+            Err(e) => {
+                warn!("{}", e.to_string());
+                return Err(Status::unknown(e.to_string()));
+            }
+        };
+        Ok(Response::new(GetMarketResponse {
+            assumption: market.assumption,
+            judge_share: market.judge_share as f32,
+            trading_end: market.trading_end.to_string(),
+            decision_period_seconds: market.decision_period.as_secs().try_into().unwrap(),
+        }))
     }
 }
 

@@ -40,16 +40,30 @@ pub enum MarketState {
     Settled,
     Refunded,
 }
+#[derive(PartialEq, Debug)]
 pub struct Judge {
-    market: Id,
-    user: Id,
-    state: JudgeState,
+    pub market: String,
+    pub user: String,
+    pub state: JudgeState,
+    pub decision: Option<String>,
 }
+#[derive(PartialEq, Debug)]
 pub enum JudgeState {
     Nominated,
     Accepted,
     Refused,
-    Resolved(String),
+    Resolved,
+}
+impl From<String> for JudgeState {
+    fn from(s: String) -> Self {
+        match s.as_str() {
+            "Nominated" => JudgeState::Nominated,
+            "Accepted" => JudgeState::Accepted,
+            "Refused" => JudgeState::Refused,
+            "Resolved" => JudgeState::Resolved,
+            _ => unreachable!("There was a non valid entry for JudgeState in the DB"),
+        }
+    }
 }
 pub struct User {
     pub id: String,
