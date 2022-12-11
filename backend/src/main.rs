@@ -106,7 +106,8 @@ impl Api for MyApi {
                 request.assumption.as_str(), 
                 request.judge_share, 
                 std::time::Duration::from_secs(request.decision_period_seconds.into()).into(),
-                request.trading_end.as_str().into()
+                request.trading_end.as_str().into(),
+                request.judges
             )
             .await
         {

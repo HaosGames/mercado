@@ -75,6 +75,7 @@ impl Mercado {
         judge_share: f32,
         decision_period: surrealdb::sql::Duration,
         trading_end: Datetime,
+        judges: Vec<String>,
     ) -> Result<(), MercadoError> {
         if judge_share > 0.1 || judge_share < 0.00001 {
             return Err(MercadoError::JudgeShareNotInRange)
@@ -85,6 +86,15 @@ impl Mercado {
         if trading_end < (Utc::now() + chrono::Duration::days(1)).into() {
             return Err(MercadoError::TradingEndToEarly)
         }
+        if judges.len() < 3 {
+            return Err(MercadoError::NotEnoughJudges)
+        }
+        if judges.len() % 2 == 0 {
+            return Err(MercadoError::EvenJudgeAmount)
+        }
+        for judge in &judges {
+            self.get_user(judge.as_str()).await?;
+        }
         if let Err(surrealdb::Error::RecordExists { .. }) = self.process(
             format!(
                 "CREATE market:{} SET assumption = '{}', judge_share = {}, decision_period = {}, trading_end = {};",
@@ -92,6 +102,9 @@ impl Mercado {
                 assumption, judge_share, decision_period, trading_end
             )).await.result {
             return Err(MercadoError::MarketAlreadyExists)
+        }
+        for judge in judges {
+            self.process(format!("CREATE judge SET user = {}, market = {}, state = 'Nominated'", judge, strip_id(&id))).await;
         }
         Ok(())
     }
@@ -235,7 +248,7 @@ mod test {
     #[tokio::test]
     async fn use_db_funds() {
         let market = Mercado::new().await;
-        market.add_user("haos").await;
+        market.add_user("haos").await.unwrap();
         market.deposit_funds("haos", 100).await;
         assert_eq!(Ok(()), market.withdraw_funds("haos", 50).await);
         let funds = market.get_funds("haos").await.unwrap();
@@ -244,7 +257,10 @@ mod test {
     #[tokio::test]
     async fn use_db_bets() {
         let market = Mercado::new().await;
-        market.add_user("haos").await;
+        market.add_user("haos").await.unwrap();
+        market.add_user("judge1").await.unwrap();
+        market.add_user("judge2").await.unwrap();
+        market.add_user("judge3").await.unwrap();
         assert_eq!(Ok(()), market
             .create_market(
                 "hobby",
@@ -252,6 +268,7 @@ mod test {
                 0.01,
                 std::time::Duration::from_secs(86400).into(),
                 (Utc::now() + chrono::Duration::days(2)).into(),
+                vec!["judge1".to_string(), "judge2".to_string(), "judge3".to_string()]
             )
             .await);
         market.make_bet("haos", "hobby", "World", 1).await;
@@ -267,7 +284,7 @@ mod test {
     #[tokio::test]
     async fn try_to_steal() {
         let market = Mercado::new().await;
-        market.add_user("haos").await;
+        market.add_user("haos").await.unwrap();
         market.deposit_funds("haos", 100).await;
         let result = market.withdraw_funds("haos", 110).await;
         assert_eq!(Err(MercadoError::NotEnoughFunds), result);
@@ -281,7 +298,10 @@ mod test {
     #[tokio::test]
     async fn cancel_bet_from_stopped_market() {
         let market = Mercado::new().await;
-        market.add_user("haos").await;
+        market.add_user("haos").await.unwrap();
+        market.add_user("judge1").await.unwrap();
+        market.add_user("judge2").await.unwrap();
+        market.add_user("judge3").await.unwrap();
         assert_eq!(Ok(()), market
             .create_market(
                 "hobby",
@@ -289,10 +309,11 @@ mod test {
                 0.01,
                 std::time::Duration::from_secs(86400).into(),
                 (Utc::now() + chrono::Duration::days(2)).into(),
+                vec!["judge1".to_string(), "judge2".to_string(), "judge3".to_string()]
             )
             .await);
         market.make_bet("haos", "hobby", "World", 1).await;
-        dbg!(market.process(format!("UPDATE market:hobby SET trading_end = {};", surrealdb::sql::Datetime::from(Utc::now() - chrono::Duration::days(1)))).await);
+        market.process(format!("UPDATE market:hobby SET trading_end = {};", surrealdb::sql::Datetime::from(Utc::now() - chrono::Duration::days(1)))).await;
         let bet = market.get_user_bets("haos").await.unwrap().pop().unwrap();
         let result = market.cancel_bet(bet.id.as_str()).await;
         assert_eq!(Err(MercadoError::TradingStopped), result);

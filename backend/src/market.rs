@@ -49,7 +49,7 @@ pub enum JudgeState {
     Nominated,
     Accepted,
     Refused,
-    Resolved(bool),
+    Resolved(String),
 }
 pub struct User {
     pub id: String,

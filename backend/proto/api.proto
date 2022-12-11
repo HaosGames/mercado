@@ -42,4 +42,5 @@ message CreateMarketRequest {
     float judge_share = 3;
     string trading_end = 4;
     uint32 decision_period_seconds = 5;
+    repeated string judges = 6;
 }
