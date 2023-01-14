@@ -1,16 +1,17 @@
 use log::{debug, warn};
 use tonic::{transport::Server, Request, Response, Status};
 
-use crate::market::MercadoError;
-use crate::mercado::Mercado;
+/*use crate::mercado::Mercado;
 use hello_world::api_server::{Api, ApiServer};
 use hello_world::{
     CreateMarketRequest, CreateUser, DepositRequest, GenericResponse, GetFundsRequest,
     GetFundsResponse, GetMarketRequest, GetMarketResponse, WithdrawRequest,
-};
+};*/
 
-mod market;
-mod mercado;
+// mod mercado;
+mod api;
+mod platform;
+/*
 pub mod hello_world {
     tonic::include_proto!("api");
 }
@@ -151,6 +152,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     Ok(())
 }
+*/
+fn main() {}
 
 #[allow(unused)]
 #[cfg(test)]

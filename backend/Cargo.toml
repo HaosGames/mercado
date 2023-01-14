@@ -26,6 +26,7 @@ surrealdb = "1.0.0-beta.8"
 tonic = "0.8"
 prost = "0.11"
 clap = { version = "4.0", features = ["derive"] }
+thiserror = "1.0"
 
 [build-dependencies]
 tonic-build = "0.8"

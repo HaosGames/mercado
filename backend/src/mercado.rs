@@ -1,7 +1,6 @@
-use crate::market::{Bet, Judge, JudgeState, Market, MercadoError, Sats, User};
+use crate::platform::{Bet, Judge, JudgeState, Market, MercadoError, Sats, Username};
 use chrono::Utc;
 use std::collections::BTreeMap;
-use std::fmt::format;
 use surrealdb::sql::{Array, Datetime, Number, Object};
 use surrealdb::{
     sql::{parse, Value},
@@ -253,12 +252,12 @@ impl Mercado {
         }
         Ok(bets)
     }
-    pub async fn get_user(&self, user: &str) -> Result<User, MercadoError> {
+    pub async fn get_user(&self, user: &str) -> Result<Username, MercadoError> {
         let response = self.process(format!("SELECT * FROM user:{};", user,)).await;
         let rows = get_rows(response).unwrap();
         for row in rows {
             let sats = row.get("sats").unwrap().clone().as_int();
-            return Ok(User {
+            return Ok(Username {
                 id: user.to_string(),
                 sats,
             });

@@ -2172,6 +2172,7 @@ dependencies = [
  "serde",
  "serde_json",
  "surrealdb",
+ "thiserror",
  "tokio",
  "tonic",
  "tonic-build",
