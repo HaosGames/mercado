@@ -118,7 +118,6 @@ impl Backend {
         decision: bool,
     ) -> Result<(), MarketError> {
         match self.db.get_prediction_state(prediction)? {
-            MarketState::Trading => {}
             MarketState::WaitingForDecision => {
                 if self.db.get_trading_end(prediction)? + self.db.get_decision_period(prediction)?
                     < Utc::now()
@@ -401,6 +400,13 @@ impl Backend {
     pub fn get_locked_balance(&self, user: &Username) -> Result<Sats, MarketError> {
         self.db.get_locked_balance(user)
     }
+    #[cfg(test)]
+    fn force_decision_period(&self, prediction: &String) -> Result<(), MarketError> {
+        match self.db.get_prediction_state(prediction)? {
+            MarketState::Trading => self.db.set_prediction_state(prediction, MarketState::WaitingForDecision),
+            _ => Err(MarketError::WrongMarketState),
+        }
+    }
 }
 
 #[derive(Error, PartialEq, Debug)]
@@ -512,6 +518,7 @@ mod test {
         market.add_bet(&prediction, &u1, true, 100).unwrap();
         market.add_bet(&prediction, &u2, true, 100).unwrap();
         market.add_bet(&prediction, &u3, true, 100).unwrap();
+        market.force_decision_period(&prediction).unwrap();
         market.make_decision(&prediction, &j1, true).unwrap();
         market.make_decision(&prediction, &j2, true).unwrap();
         market.make_decision(&prediction, &j3, true).unwrap();
