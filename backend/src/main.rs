@@ -10,6 +10,7 @@ use hello_world::{
 
 // mod mercado;
 mod api;
+mod db;
 mod platform;
 /*
 pub mod hello_world {

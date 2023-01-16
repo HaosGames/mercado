@@ -1,28 +1,14 @@
+use crate::db::{Prediction, DB};
 use chrono::{DateTime, Duration, Utc};
 use rust_decimal::prelude::ToPrimitive;
 use rust_decimal::Decimal;
 use std::cmp::Ordering;
 use std::collections::HashMap;
-use std::rc::Rc;
-use std::sync::{Mutex, MutexGuard};
 use thiserror::Error;
 
 pub type Sats = u32;
 pub type Username = String;
 
-#[derive(Debug)]
-struct Prediction {
-    prediction: String,
-    bets_true: HashMap<Username, u32>,
-    bets_false: HashMap<Username, u32>,
-    judges: HashMap<Username, JudgeState>,
-    judge_share_ppm: u32,
-    state: MarketState,
-    trading_end: DateTime<Utc>,
-    decision_period: Duration,
-    judge_count: u32,
-    cash_out: Option<CashOut>,
-}
 #[derive(PartialEq, Debug, Clone)]
 pub enum JudgeState {
     Nominated,
@@ -349,23 +335,31 @@ impl Backend {
             _ => Err(MarketError::WrongMarketState),
         }
     }
-    pub fn cash_out_user(
-        &mut self,
-        prediction: &String,
-        user: &Username,
-    ) -> Result<u32, MarketError> {
+    fn cash_out_user(&mut self, prediction: &String, user: &Username) -> Result<u32, MarketError> {
         match self.db.get_prediction_state(prediction)? {
-            MarketState::Resolved { .. } => self.db.remove_cash_out_user(prediction, user),
+            MarketState::Resolved { .. } => {
+                let cash_out = self.db.remove_cash_out_user(prediction, user)?;
+                let (bet_true, bet_false) =
+                    self.db.get_user_bets_of_prediction(user, prediction)?;
+                let bets = bet_true.unwrap_or(0) + bet_false.unwrap_or(0);
+                self.db.remove_balance(user, bets)?;
+                self.db.add_balance(user, cash_out)?;
+                Ok(cash_out)
+            }
             _ => Err(MarketError::WrongMarketState),
         }
     }
-    pub fn cash_out_judge(
+    fn cash_out_judge(
         &mut self,
         prediction: &String,
         judge: &Username,
     ) -> Result<u32, MarketError> {
         match self.db.get_prediction_state(prediction)? {
-            MarketState::Resolved { .. } => self.db.remove_cash_out_judge(prediction, judge),
+            MarketState::Resolved { .. } => {
+                let cash_out = self.db.remove_cash_out_judge(prediction, judge)?;
+                self.db.add_balance(judge, cash_out)?;
+                Ok(cash_out)
+            }
             _ => Err(MarketError::WrongMarketState),
         }
     }
@@ -409,10 +403,6 @@ impl Backend {
     }
 }
 
-#[derive(Debug, Default)]
-pub struct User {
-    sats: Sats,
-}
 #[derive(Error, PartialEq, Debug)]
 pub enum MarketError {
     #[error("")]
@@ -477,477 +467,59 @@ pub enum MarketCreationError {
     MarketAlreadyExists,
 }
 
-pub enum DB {
-    Test(Rc<Mutex<TestDB>>),
-}
-#[derive(Debug, Default)]
-pub struct TestDB {
-    predictions: HashMap<String, Prediction>,
-    users: HashMap<Username, User>,
-}
-impl DB {
-    fn add_prediction(
-        &self,
-        id: String,
-        prediction: Prediction,
-    ) -> Result<(), MarketCreationError> {
-        match self {
-            DB::Test(db) => {
-                let mut db = db.lock().unwrap();
-                if !db.predictions.contains_key(&id) {
-                    db.predictions.insert(id, prediction);
-                    Ok(())
-                } else {
-                    Err(MarketCreationError::MarketAlreadyExists)
-                }
-            }
-        }
-    }
-    fn get_mut_prediction<'a>(
-        db: &'a mut MutexGuard<TestDB>,
-        prediction: &'_ String,
-    ) -> Result<&'a mut Prediction, MarketError> {
-        if let Some(market) = db.predictions.get_mut(prediction) {
-            Ok(market)
-        } else {
-            Err(MarketError::MarketDoesntExist)
-        }
-    }
-    fn get_prediction_state(&self, prediction: &String) -> Result<MarketState, MarketError> {
-        match self {
-            Self::Test(db) => {
-                let mut db = db.lock().unwrap();
-                let prediction = Self::get_mut_prediction(&mut db, prediction)?;
-                Ok(prediction.state.clone())
-            }
-        }
-    }
-    fn set_prediction_state(
-        &self,
-        prediction: &String,
-        state: MarketState,
-    ) -> Result<(), MarketError> {
-        match self {
-            Self::Test(db) => {
-                let mut db = db.lock().unwrap();
-                let prediction = Self::get_mut_prediction(&mut db, prediction)?;
-                prediction.state = state;
-                Ok(())
-            }
-        }
-    }
-    fn set_judge_accepted_if_nominated(
-        &self,
-        prediction: &String,
-        judge: &Username,
-    ) -> Result<(), MarketError> {
-        match self {
-            Self::Test(db) => {
-                let mut db = db.lock().unwrap();
-                let prediction = Self::get_mut_prediction(&mut db, prediction)?;
-                if let Some(state) = prediction.judges.get_mut(judge) {
-                    if *state == JudgeState::Nominated {
-                        *state = JudgeState::Accepted;
-                        Ok(())
-                    } else {
-                        Err(MarketError::JudgeHasWrongState)
-                    }
-                } else {
-                    Err(MarketError::JudgeDoesntExist)
-                }
-            }
-        }
-    }
-    fn set_judge_refused_if_nominated(
-        &self,
-        prediction: &String,
-        judge: &Username,
-    ) -> Result<(), MarketError> {
-        match self {
-            Self::Test(db) => {
-                let mut db = db.lock().unwrap();
-                let prediction = Self::get_mut_prediction(&mut db, prediction)?;
-                if let Some(state) = prediction.judges.get_mut(judge) {
-                    if *state == JudgeState::Nominated {
-                        *state = JudgeState::Refused;
-                        Ok(())
-                    } else {
-                        Err(MarketError::JudgeHasWrongState)
-                    }
-                } else {
-                    Err(MarketError::JudgeDoesntExist)
-                }
-            }
-        }
-    }
-    fn set_judge_resolved_if_accepted(
-        &self,
-        prediction: &String,
-        judge: &Username,
-        decision: bool,
-    ) -> Result<(), MarketError> {
-        match self {
-            Self::Test(db) => {
-                let mut db = db.lock().unwrap();
-                let prediction = Self::get_mut_prediction(&mut db, prediction)?;
-                if let Some(state) = prediction.judges.get_mut(judge) {
-                    if *state == JudgeState::Accepted {
-                        *state = JudgeState::Resolved(decision);
-                        Ok(())
-                    } else {
-                        Err(MarketError::JudgeHasWrongState)
-                    }
-                } else {
-                    Err(MarketError::JudgeDoesntExist)
-                }
-            }
-        }
-    }
-    fn get_trading_end(&self, prediction: &String) -> Result<DateTime<Utc>, MarketError> {
-        match self {
-            Self::Test(db) => {
-                let mut db = db.lock().unwrap();
-                let prediction = Self::get_mut_prediction(&mut db, prediction)?;
-                Ok(prediction.trading_end.clone())
-            }
-        }
-    }
-    fn get_decision_period(&self, prediction: &String) -> Result<Duration, MarketError> {
-        match self {
-            Self::Test(db) => {
-                let mut db = db.lock().unwrap();
-                let prediction = Self::get_mut_prediction(&mut db, prediction)?;
-                Ok(prediction.decision_period.clone())
-            }
-        }
-    }
-    fn get_judges(
-        &self,
-        prediction: &String,
-    ) -> Result<HashMap<Username, JudgeState>, MarketError> {
-        match self {
-            Self::Test(db) => {
-                let mut db = db.lock().unwrap();
-                let prediction = Self::get_mut_prediction(&mut db, prediction)?;
-                Ok(prediction.judges.clone())
-            }
-        }
-    }
-    fn get_judge_states(&self, prediction: &String) -> Result<Vec<JudgeState>, MarketError> {
-        match self {
-            Self::Test(db) => {
-                let mut db = db.lock().unwrap();
-                let prediction = Self::get_mut_prediction(&mut db, prediction)?;
-                Ok(prediction.judges.values().cloned().collect())
-            }
-        }
-    }
-    fn set_cash_out(&self, prediction: &String, cash_out: CashOut) -> Result<(), MarketError> {
-        match self {
-            Self::Test(db) => {
-                let mut db = db.lock().unwrap();
-                let prediction = Self::get_mut_prediction(&mut db, prediction)?;
-                prediction.cash_out = Some(cash_out);
-                Ok(())
-            }
-        }
-    }
-    fn get_judge_share_ppm(&self, prediction: &String) -> Result<u32, MarketError> {
-        match self {
-            Self::Test(db) => {
-                let mut db = db.lock().unwrap();
-                let prediction = Self::get_mut_prediction(&mut db, prediction)?;
-                Ok(prediction.judge_share_ppm)
-            }
-        }
-    }
-    fn get_judge_count(&self, prediction: &String) -> Result<u32, MarketError> {
-        match self {
-            Self::Test(db) => {
-                let mut db = db.lock().unwrap();
-                let prediction = Self::get_mut_prediction(&mut db, prediction)?;
-                Ok(prediction.judge_count)
-            }
-        }
-    }
-    /// Add amount to new or existing bet if enough unlocked funds are available
-    fn add_bet_amount(
-        &self,
-        prediction: &String,
-        user: &Username,
-        bet: bool,
-        amount: Sats,
-    ) -> Result<(), MarketError> {
-        match self {
-            Self::Test(db) => {
-                let mut db = db.lock().unwrap();
-                let total_funds = Self::get_user_funds(&db, user)?;
-                let locked_funds = Self::get_bet_funds(&db, user);
-                if amount > total_funds - locked_funds {
-                    return Err(MarketError::NotEnoughFunds);
-                }
-                let prediction = Self::get_mut_prediction(&mut db, prediction)?;
-                let bets = if bet {
-                    &mut prediction.bets_true
-                } else {
-                    &mut prediction.bets_false
-                };
-                if let Some(bet_amount) = bets.get_mut(user) {
-                    *bet_amount += amount;
-                } else {
-                    bets.insert(user.clone(), amount);
-                }
-                Ok(())
-            }
-        }
-    }
-    fn remove_bets(
-        &self,
-        prediction: &String,
-        user: &Username,
-        bet: bool,
-    ) -> Result<Sats, MarketError> {
-        match self {
-            Self::Test(db) => {
-                let mut db = db.lock().unwrap();
-                let prediction = Self::get_mut_prediction(&mut db, prediction)?;
-                let bets = if bet {
-                    &mut prediction.bets_true
-                } else {
-                    &mut prediction.bets_false
-                };
-                if let Some(bet_amount) = bets.remove(user) {
-                    Ok(bet_amount)
-                } else {
-                    Ok(0)
-                }
-            }
-        }
-    }
-    fn remove_cash_out_user(
-        &self,
-        prediction: &String,
-        user: &Username,
-    ) -> Result<Sats, MarketError> {
-        match self {
-            Self::Test(db) => {
-                let mut db = db.lock().unwrap();
-                let prediction = Self::get_mut_prediction(&mut db, prediction)?;
-                if let Some(cash_out) = &mut prediction.cash_out {
-                    cash_out
-                        .users
-                        .remove(user)
-                        .ok_or(MarketError::NoCashOutFor(user.clone()))
-                } else {
-                    Err(MarketError::WrongMarketState)
-                }
-            }
-        }
-    }
-    fn remove_cash_out_judge(
-        &self,
-        prediction: &String,
-        user: &Username,
-    ) -> Result<Sats, MarketError> {
-        match self {
-            Self::Test(db) => {
-                let mut db = db.lock().unwrap();
-                let prediction = Self::get_mut_prediction(&mut db, prediction)?;
-                if let Some(cash_out) = &mut prediction.cash_out {
-                    cash_out
-                        .judges
-                        .remove(user)
-                        .ok_or(MarketError::NoCashOutFor(user.clone()))
-                } else {
-                    Err(MarketError::WrongMarketState)
-                }
-            }
-        }
-    }
-    fn get_bets(
-        &self,
-        prediction: &String,
-        outcome: bool,
-    ) -> Result<HashMap<Username, u32>, MarketError> {
-        match self {
-            Self::Test(db) => {
-                let mut db = db.lock().unwrap();
-                let prediction = Self::get_mut_prediction(&mut db, prediction)?;
-                if outcome {
-                    Ok(prediction.bets_true.clone())
-                } else {
-                    Ok(prediction.bets_false.clone())
-                }
-            }
-        }
-    }
-    fn create_user(&self, user: Username) -> Result<(), MarketError> {
-        match self {
-            DB::Test(db) => {
-                let mut db = db.lock().unwrap();
-                if !db.users.contains_key(&user) {
-                    db.users.insert(user, User::default());
-                    Ok(())
-                } else {
-                    Err(MarketError::UserAlreadyExists)
-                }
-            }
-        }
-    }
-    fn delete_user(&self, user: &Username) -> Result<(), MarketError> {
-        match self {
-            DB::Test(db) => {
-                let mut db = db.lock().unwrap();
-                if let Some(_) = db.users.remove(user) {
-                    Ok(())
-                } else {
-                    Err(MarketError::UserDoesntExist)
-                }
-            }
-        }
-    }
-    fn add_balance(&self, user: &Username, amount: Sats) -> Result<(), MarketError> {
-        match self {
-            DB::Test(db) => {
-                let mut db = db.lock().unwrap();
-                if let Some(user) = db.users.get_mut(user) {
-                    user.sats += amount;
-                    Ok(())
-                } else {
-                    Err(MarketError::UserDoesntExist)
-                }
-            }
-        }
-    }
-    /// Remove balance only if enough is available when excluding locked funds
-    fn remove_balance(&self, user: &Username, amount: Sats) -> Result<(), MarketError> {
-        match self {
-            DB::Test(db) => {
-                let mut db = db.lock().unwrap();
-                let locked_funds = Self::get_bet_funds(&db, user);
-                if let Some(user) = db.users.get_mut(user) {
-                    if amount > user.sats - locked_funds {
-                        Err(MarketError::NotEnoughFunds)
-                    } else {
-                        user.sats -= amount;
-                        Ok(())
-                    }
-                } else {
-                    Err(MarketError::UserDoesntExist)
-                }
-            }
-        }
-    }
-    fn get_bet_funds(db: &MutexGuard<TestDB>, user: &Username) -> Sats {
-        let mut locked_funds = 0;
-        for prediction in db.predictions.values() {
-            if let Some(bet) = prediction.bets_true.get(user) {
-                locked_funds += bet;
-            }
-            if let Some(bet) = prediction.bets_false.get(user) {
-                locked_funds += bet;
-            }
-        }
-        locked_funds
-    }
-    fn get_user_funds(db: &MutexGuard<TestDB>, user: &Username) -> Result<Sats, MarketError> {
-        if let Some(user) = db.users.get(user) {
-            Ok(user.sats)
-        } else {
-            Err(MarketError::UserDoesntExist)
-        }
-    }
-    /// Returns balance excluding locked funds
-    fn get_balance(&self, user: &Username) -> Result<Sats, MarketError> {
-        match self {
-            DB::Test(db) => {
-                let db = db.lock().unwrap();
-                let locked_funds = Self::get_bet_funds(&db, user);
-                let total_funds = Self::get_user_funds(&db, user)?;
-                Ok(total_funds - locked_funds)
-            }
-        }
-    }
-    fn get_locked_balance(&self, user: &Username) -> Result<Sats, MarketError> {
-        match self {
-            DB::Test(db) => {
-                let db = db.lock().unwrap();
-                let locked_funds = Self::get_bet_funds(&db, user);
-                Ok(locked_funds)
-            }
-        }
-    }
-}
-
 #[allow(unused)]
 #[cfg(test)]
 mod test {
     use super::*;
+    use crate::db::TestDB;
+    use std::rc::Rc;
+    use std::sync::Mutex;
     #[test]
     fn it_works() {
+        let (u1, u2, u3, j1, j2, j3) = (
+            "user1".to_string(),
+            "user2".to_string(),
+            "user3".to_string(),
+            "judge1".to_string(),
+            "judge2".to_string(),
+            "judge3".to_string(),
+        );
         let mut market = Backend::new(DB::Test(Rc::new(Mutex::new(TestDB::default()))));
         let prediction = "it_works".to_string();
         market
             .new_prediction(
                 "It works".to_string(),
                 prediction.clone(),
-                vec!["one".to_string(), "two".to_string(), "three".to_string()],
+                vec![j1.clone(), j2.clone(), j3.clone()],
                 3,
                 100000,
                 Utc::now() + Duration::days(3),
                 Duration::days(1),
             )
             .unwrap();
-        market
-            .accept_nomination(&prediction, &"one".to_string())
-            .unwrap();
-        market
-            .accept_nomination(&prediction, &"two".to_string())
-            .unwrap();
-        market
-            .accept_nomination(&prediction, &"three".to_string())
-            .unwrap();
-        market
-            .add_bet(&prediction, &"user1".to_string(), true, 100)
-            .unwrap();
-        market
-            .add_bet(&prediction, &"user2".to_string(), true, 100)
-            .unwrap();
-        market
-            .add_bet(&prediction, &"user3".to_string(), true, 100)
-            .unwrap();
-        market
-            .make_decision(&prediction, &"one".to_string(), true)
-            .unwrap();
-        market
-            .make_decision(&prediction, &"two".to_string(), true)
-            .unwrap();
-        market
-            .make_decision(&prediction, &"three".to_string(), true)
-            .unwrap();
-        assert_eq!(
-            market.cash_out_user(&prediction, &"user1".to_string()),
-            Ok(89)
-        );
-        assert_eq!(
-            market.cash_out_user(&prediction, &"user2".to_string()),
-            Ok(89)
-        );
-        assert_eq!(
-            market.cash_out_user(&prediction, &"user3".to_string()),
-            Ok(89)
-        );
-        assert_eq!(
-            market.cash_out_judge(&prediction, &"one".to_string()),
-            Ok(10)
-        );
-        assert_eq!(
-            market.cash_out_judge(&prediction, &"two".to_string()),
-            Ok(10)
-        );
-        assert_eq!(
-            market.cash_out_judge(&prediction, &"three".to_string()),
-            Ok(10)
-        );
+        market.create_user(u1.clone()).unwrap();
+        market.create_user(u2.clone()).unwrap();
+        market.create_user(u3.clone()).unwrap();
+        market.create_user(j1.clone()).unwrap();
+        market.create_user(j2.clone()).unwrap();
+        market.create_user(j3.clone()).unwrap();
+        market.accept_nomination(&prediction, &j1).unwrap();
+        market.accept_nomination(&prediction, &j2).unwrap();
+        market.accept_nomination(&prediction, &j3).unwrap();
+        market.deposit(&u1, 100).unwrap();
+        market.deposit(&u2, 100).unwrap();
+        market.deposit(&u3, 100).unwrap();
+        market.add_bet(&prediction, &u1, true, 100).unwrap();
+        market.add_bet(&prediction, &u2, true, 100).unwrap();
+        market.add_bet(&prediction, &u3, true, 100).unwrap();
+        market.make_decision(&prediction, &j1, true).unwrap();
+        market.make_decision(&prediction, &j2, true).unwrap();
+        market.make_decision(&prediction, &j3, true).unwrap();
+        assert_eq!(market.cash_out_user(&prediction, &u1), Ok(89));
+        assert_eq!(market.cash_out_user(&prediction, &u2), Ok(89));
+        assert_eq!(market.cash_out_user(&prediction, &u3), Ok(89));
+        assert_eq!(market.cash_out_judge(&prediction, &j1), Ok(10));
+        assert_eq!(market.cash_out_judge(&prediction, &j2), Ok(10));
+        assert_eq!(market.cash_out_judge(&prediction, &j3), Ok(10));
     }
 }
