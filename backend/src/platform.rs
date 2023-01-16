@@ -311,7 +311,7 @@ impl Backend {
                     return Err(MarketError::WrongMarketState);
                 }
             }
-            e => return Err(MarketError::WrongMarketState),
+            _ => return Err(MarketError::WrongMarketState),
         }
         self.db.add_bet_amount(prediction, user, bet, amount)
     }
@@ -387,10 +387,31 @@ impl Backend {
         let bets = self.db.get_bets(prediction, bet)?;
         Ok(bets.values().sum())
     }
+    pub fn create_user(&self, user: Username) -> Result<(), MarketError> {
+        self.db.create_user(user)
+    }
+    pub fn delete_user(&self, user: &Username) -> Result<(), MarketError> {
+        self.db.delete_user(user)
+    }
+    pub fn deposit(&self, user: &Username, amount: Sats) -> Result<(), MarketError> {
+        self.db.add_balance(user, amount)
+    }
+    pub fn withdraw(&self, user: &Username, amount: Sats) -> Result<(), MarketError> {
+        self.db.remove_balance(user, amount)
+    }
+    /// Returns balance excluding locked funds
+    pub fn get_balance(&self, user: &Username) -> Result<Sats, MarketError> {
+        self.db.get_balance(user)
+    }
+    /// Returns balance that is locked in bets
+    pub fn get_locked_balance(&self, user: &Username) -> Result<Sats, MarketError> {
+        self.db.get_locked_balance(user)
+    }
 }
 
+#[derive(Debug, Default)]
 pub struct User {
-    sats: u32,
+    sats: Sats,
 }
 #[derive(Error, PartialEq, Debug)]
 pub enum MarketError {
@@ -462,6 +483,7 @@ pub enum DB {
 #[derive(Debug, Default)]
 pub struct TestDB {
     predictions: HashMap<String, Prediction>,
+    users: HashMap<Username, User>,
 }
 impl DB {
     fn add_prediction(
@@ -648,6 +670,7 @@ impl DB {
             }
         }
     }
+    /// Add amount to new or existing bet if enough unlocked funds are available
     fn add_bet_amount(
         &self,
         prediction: &String,
@@ -658,6 +681,11 @@ impl DB {
         match self {
             Self::Test(db) => {
                 let mut db = db.lock().unwrap();
+                let total_funds = Self::get_user_funds(&db, user)?;
+                let locked_funds = Self::get_bet_funds(&db, user);
+                if amount > total_funds - locked_funds {
+                    return Err(MarketError::NotEnoughFunds);
+                }
                 let prediction = Self::get_mut_prediction(&mut db, prediction)?;
                 let bets = if bet {
                     &mut prediction.bets_true
@@ -750,6 +778,102 @@ impl DB {
                 } else {
                     Ok(prediction.bets_false.clone())
                 }
+            }
+        }
+    }
+    fn create_user(&self, user: Username) -> Result<(), MarketError> {
+        match self {
+            DB::Test(db) => {
+                let mut db = db.lock().unwrap();
+                if !db.users.contains_key(&user) {
+                    db.users.insert(user, User::default());
+                    Ok(())
+                } else {
+                    Err(MarketError::UserAlreadyExists)
+                }
+            }
+        }
+    }
+    fn delete_user(&self, user: &Username) -> Result<(), MarketError> {
+        match self {
+            DB::Test(db) => {
+                let mut db = db.lock().unwrap();
+                if let Some(_) = db.users.remove(user) {
+                    Ok(())
+                } else {
+                    Err(MarketError::UserDoesntExist)
+                }
+            }
+        }
+    }
+    fn add_balance(&self, user: &Username, amount: Sats) -> Result<(), MarketError> {
+        match self {
+            DB::Test(db) => {
+                let mut db = db.lock().unwrap();
+                if let Some(user) = db.users.get_mut(user) {
+                    user.sats += amount;
+                    Ok(())
+                } else {
+                    Err(MarketError::UserDoesntExist)
+                }
+            }
+        }
+    }
+    /// Remove balance only if enough is available when excluding locked funds
+    fn remove_balance(&self, user: &Username, amount: Sats) -> Result<(), MarketError> {
+        match self {
+            DB::Test(db) => {
+                let mut db = db.lock().unwrap();
+                let locked_funds = Self::get_bet_funds(&db, user);
+                if let Some(user) = db.users.get_mut(user) {
+                    if amount > user.sats - locked_funds {
+                        Err(MarketError::NotEnoughFunds)
+                    } else {
+                        user.sats -= amount;
+                        Ok(())
+                    }
+                } else {
+                    Err(MarketError::UserDoesntExist)
+                }
+            }
+        }
+    }
+    fn get_bet_funds(db: &MutexGuard<TestDB>, user: &Username) -> Sats {
+        let mut locked_funds = 0;
+        for prediction in db.predictions.values() {
+            if let Some(bet) = prediction.bets_true.get(user) {
+                locked_funds += bet;
+            }
+            if let Some(bet) = prediction.bets_false.get(user) {
+                locked_funds += bet;
+            }
+        }
+        locked_funds
+    }
+    fn get_user_funds(db: &MutexGuard<TestDB>, user: &Username) -> Result<Sats, MarketError> {
+        if let Some(user) = db.users.get(user) {
+            Ok(user.sats)
+        } else {
+            Err(MarketError::UserDoesntExist)
+        }
+    }
+    /// Returns balance excluding locked funds
+    fn get_balance(&self, user: &Username) -> Result<Sats, MarketError> {
+        match self {
+            DB::Test(db) => {
+                let db = db.lock().unwrap();
+                let locked_funds = Self::get_bet_funds(&db, user);
+                let total_funds = Self::get_user_funds(&db, user)?;
+                Ok(total_funds - locked_funds)
+            }
+        }
+    }
+    fn get_locked_balance(&self, user: &Username) -> Result<Sats, MarketError> {
+        match self {
+            DB::Test(db) => {
+                let db = db.lock().unwrap();
+                let locked_funds = Self::get_bet_funds(&db, user);
+                Ok(locked_funds)
             }
         }
     }
