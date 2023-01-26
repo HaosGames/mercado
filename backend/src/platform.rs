@@ -176,6 +176,8 @@ impl Backend {
             }
             e => e,
         }?;
+        //TODO Cash out all users and judges:
+        // Adjust the balances of all users to reflect the cash out
         self.db.set_cash_out(prediction, cash_out)?;
         Ok(())
     }
