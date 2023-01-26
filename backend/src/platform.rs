@@ -1,4 +1,5 @@
 use crate::db::{Prediction, DB};
+use crate::funding_source::{FundingSource, Wallet};
 use chrono::{DateTime, Duration, Utc};
 use rust_decimal::prelude::ToPrimitive;
 use rust_decimal::Decimal;
@@ -7,7 +8,7 @@ use std::collections::HashMap;
 use thiserror::Error;
 
 pub type Sats = u32;
-pub type Username = String;
+pub type UserPubKey = nostr_sdk::prelude::PublicKey;
 
 #[derive(PartialEq, Debug, Clone)]
 pub enum JudgeState {
@@ -33,23 +34,24 @@ pub enum RefundReason {
 }
 #[derive(Debug)]
 pub struct CashOut {
-    pub users: HashMap<Username, u32>,
-    pub judges: HashMap<Username, u32>,
+    pub users: HashMap<UserPubKey, u32>,
+    pub judges: HashMap<UserPubKey, u32>,
 }
 
 pub struct Backend {
     db: DB,
+    funding: FundingSource,
 }
 
 impl Backend {
-    pub fn new(db: DB) -> Self {
-        Self { db }
+    pub fn new(db: DB, funding: FundingSource) -> Self {
+        Self { db, funding }
     }
     pub fn new_prediction(
         &self,
         prediction: String,
         id: String,
-        judges: Vec<Username>,
+        judges: Vec<UserPubKey>,
         judge_count: u32,
         judge_share_ppm: u32,
         trading_end: DateTime<Utc>,
@@ -83,6 +85,7 @@ impl Backend {
                 decision_period,
                 state: MarketState::WaitingForJudges,
                 cash_out: None,
+                wallet: self.funding.new_wallet(),
             },
         )?;
         Ok(())
@@ -90,31 +93,33 @@ impl Backend {
     pub fn accept_nomination(
         &mut self,
         prediction: &String,
-        user: &Username,
+        judge: &UserPubKey,
     ) -> Result<(), MarketError> {
         match self.db.get_prediction_state(prediction)? {
             MarketState::WaitingForJudges => {}
             _ => return Err(MarketError::WrongMarketState),
         }
+        //TODO Check if judge accepted via Nostr
         self.db
-            .set_judge_accepted_if_nominated(prediction, user)
+            .set_judge_accepted_if_nominated(prediction, judge)
             .and_then(|_| Ok(self.try_activate_trading(prediction)?))
     }
     pub fn refuse_nomination(
         &mut self,
         prediction: &String,
-        user: &Username,
+        user: &UserPubKey,
     ) -> Result<(), MarketError> {
         match self.db.get_prediction_state(prediction)? {
             MarketState::WaitingForJudges => {}
-            e => return Err(MarketError::WrongMarketState),
+            _ => return Err(MarketError::WrongMarketState),
         }
+        //TODO Check if judge refused via Nostr
         self.db.set_judge_refused_if_nominated(prediction, user)
     }
     pub fn make_decision(
         &mut self,
         prediction: &String,
-        user: &Username,
+        user: &UserPubKey,
         decision: bool,
     ) -> Result<(), MarketError> {
         match self.db.get_prediction_state(prediction)? {
@@ -131,6 +136,7 @@ impl Backend {
             }
             _ => return Err(MarketError::WrongMarketState),
         }
+        //TODO Check if judge made decision via Nostr
         self.db
             .set_judge_resolved_if_accepted(prediction, user, decision)
             .and_then(|_| self.try_resolve(prediction))
@@ -184,8 +190,8 @@ impl Backend {
     fn calculate_cash_out(&self, prediction: &String) -> Result<CashOut, MarketError> {
         if let MarketState::Resolved(outcome) = self.db.get_prediction_state(prediction)? {
             let bets = self.db.get_bets(prediction, outcome)?;
-            let outcome_amount = self.get_bets_amount(prediction, outcome)?;
-            let non_outcome_amount = self.get_bets_amount(prediction, !outcome)?;
+            let outcome_amount = self.get_prediction_bets(prediction, outcome)?;
+            let non_outcome_amount = self.get_prediction_bets(prediction, !outcome)?;
 
             // Calculate users
             let mut user_cash_outs = HashMap::new();
@@ -237,7 +243,7 @@ impl Backend {
         outcome_amount: u32,
         non_outcome_amount: u32,
         judge_share_ppm: u32,
-    ) -> u32 {
+    ) -> Sats {
         //! If the calculation of shares leads to decimals we truncate to not give
         //! out to many sats by accident which would lead to an insolvent market.
         //! We keep the sats that don't get handed back to the user.
@@ -260,7 +266,7 @@ impl Backend {
         outcome_amount: u32,
         non_outcome_amount: u32,
         judge_share_ppm: u32,
-    ) -> u32 {
+    ) -> Sats {
         //! See [`calculate_user_cash_out()`]
         let total_amount = Decimal::from(outcome_amount + non_outcome_amount);
         let outcome_judges = Decimal::from(outcome_judges);
@@ -286,7 +292,7 @@ impl Backend {
     pub fn add_bet(
         &mut self,
         prediction: &String,
-        user: &Username,
+        user: &UserPubKey,
         bet: bool,
         amount: u32,
     ) -> Result<(), MarketError> {
@@ -300,14 +306,22 @@ impl Backend {
             }
             _ => return Err(MarketError::WrongMarketState),
         }
+        let wallet = self.db.get_prediction_wallet(prediction)?;
+        let invoice = self.funding.create_invoice(&wallet)?;
+        //TODO There could be the case where the invoice is payed after the check
+        // but the bet was not added.
+        if !self.funding.invoice_is_paid(&invoice)? {
+            return Err(MarketError::InvoiceWasNotPaid);
+        }
         self.db.add_bet_amount(prediction, user, bet, amount)
     }
     pub fn cancel_bet(
         &mut self,
         prediction: &String,
-        user: &Username,
+        user: &UserPubKey,
         bet: bool,
-    ) -> Result<(), MarketError> {
+        wallet: &Wallet,
+    ) -> Result<Sats, MarketError> {
         match self.db.get_prediction_state(prediction)? {
             MarketState::Trading => {
                 if self.db.get_trading_end(prediction)? < Utc::now() {
@@ -318,33 +332,46 @@ impl Backend {
             }
             _ => return Err(MarketError::WrongMarketState),
         }
-        self.db.remove_bets(prediction, user, bet)?;
-        Ok(())
+        let amount = self.db.remove_bets(prediction, user, bet)?;
+        self.funding
+            .send_to_wallet(&self.db.get_prediction_wallet(prediction)?, wallet, amount)?;
+        Ok(amount)
     }
     pub fn refund_user(
         &mut self,
         prediction: &String,
-        user: &Username,
-    ) -> Result<u32, MarketError> {
+        user: &UserPubKey,
+        wallet: &Wallet,
+    ) -> Result<Sats, MarketError> {
         match self.db.get_prediction_state(prediction)? {
             MarketState::Refunded(_) => {
                 let mut out = 0;
                 out += self.db.remove_bets(prediction, user, true)?;
                 out += self.db.remove_bets(prediction, user, false)?;
+                self.funding.send_to_wallet(
+                    &self.db.get_prediction_wallet(prediction)?,
+                    wallet,
+                    out,
+                )?;
                 Ok(out)
             }
             _ => Err(MarketError::WrongMarketState),
         }
     }
-    fn cash_out_user(&mut self, prediction: &String, user: &Username) -> Result<u32, MarketError> {
+    fn cash_out_user(
+        &mut self,
+        prediction: &String,
+        user: &UserPubKey,
+        wallet: &Wallet,
+    ) -> Result<Sats, MarketError> {
         match self.db.get_prediction_state(prediction)? {
             MarketState::Resolved { .. } => {
-                let cash_out = self.db.remove_cash_out_user(prediction, user)?;
-                let (bet_true, bet_false) =
-                    self.db.get_user_bets_of_prediction(user, prediction)?;
-                let bets = bet_true.unwrap_or(0) + bet_false.unwrap_or(0);
-                self.db.remove_balance(user, bets)?;
-                self.db.add_balance(user, cash_out)?;
+                let cash_out = self.db.pop_cash_out_user(prediction, user)?;
+                self.funding.send_to_wallet(
+                    &self.db.get_prediction_wallet(prediction)?,
+                    wallet,
+                    cash_out,
+                )?;
                 Ok(cash_out)
             }
             _ => Err(MarketError::WrongMarketState),
@@ -353,18 +380,23 @@ impl Backend {
     fn cash_out_judge(
         &mut self,
         prediction: &String,
-        judge: &Username,
-    ) -> Result<u32, MarketError> {
+        judge: &UserPubKey,
+        wallet: &Wallet,
+    ) -> Result<Sats, MarketError> {
         match self.db.get_prediction_state(prediction)? {
             MarketState::Resolved { .. } => {
-                let cash_out = self.db.remove_cash_out_judge(prediction, judge)?;
-                self.db.add_balance(judge, cash_out)?;
+                let cash_out = self.db.pop_cash_out_judge(prediction, judge)?;
+                self.funding.send_to_wallet(
+                    &self.db.get_prediction_wallet(prediction)?,
+                    wallet,
+                    cash_out,
+                )?;
                 Ok(cash_out)
             }
             _ => Err(MarketError::WrongMarketState),
         }
     }
-    fn get_outcome_judge_count(&self, prediction: &String) -> Result<u32, MarketError> {
+    fn get_outcome_judge_count(&self, prediction: &String) -> Result<Sats, MarketError> {
         if let MarketState::Resolved(outcome) = self.db.get_prediction_state(prediction)? {
             let mut count = 0;
             for state in self.db.get_judge_states(prediction)? {
@@ -378,34 +410,23 @@ impl Backend {
         }
         Err(MarketError::WrongMarketState)
     }
-    fn get_bets_amount(&self, prediction: &String, bet: bool) -> Result<u32, MarketError> {
+    fn get_prediction_bets(&self, prediction: &String, bet: bool) -> Result<u32, MarketError> {
         let bets = self.db.get_bets(prediction, bet)?;
         Ok(bets.values().sum())
     }
-    pub fn create_user(&self, user: Username) -> Result<(), MarketError> {
-        self.db.create_user(user)
-    }
-    pub fn delete_user(&self, user: &Username) -> Result<(), MarketError> {
-        self.db.delete_user(user)
-    }
-    pub fn deposit(&self, user: &Username, amount: Sats) -> Result<(), MarketError> {
-        self.db.add_balance(user, amount)
-    }
-    pub fn withdraw(&self, user: &Username, amount: Sats) -> Result<(), MarketError> {
-        self.db.remove_balance(user, amount)
-    }
-    /// Returns balance excluding locked funds
-    pub fn get_balance(&self, user: &Username) -> Result<Sats, MarketError> {
-        self.db.get_balance(user)
-    }
-    /// Returns balance that is locked in bets
-    pub fn get_locked_balance(&self, user: &Username) -> Result<Sats, MarketError> {
-        self.db.get_locked_balance(user)
+    pub fn get_bets(
+        &self,
+        prediction: &String,
+        user: &UserPubKey,
+    ) -> Result<(Option<Sats>, Option<Sats>), MarketError> {
+        self.db.get_user_bets_of_prediction(user, prediction)
     }
     #[cfg(test)]
     fn force_decision_period(&self, prediction: &String) -> Result<(), MarketError> {
         match self.db.get_prediction_state(prediction)? {
-            MarketState::Trading => self.db.set_prediction_state(prediction, MarketState::WaitingForDecision),
+            MarketState::Trading => self
+                .db
+                .set_prediction_state(prediction, MarketState::WaitingForDecision),
             _ => Err(MarketError::WrongMarketState),
         }
     }
@@ -450,9 +471,11 @@ pub enum MarketError {
     #[error("The market has the wrong State to execute this operation")]
     WrongMarketState,
     #[error("There is no CashOut for '{0}'")]
-    NoCashOutFor(Username),
+    NoCashOutFor(UserPubKey),
     #[error("")]
     MarketCreation(MarketCreationError),
+    #[error("")]
+    InvoiceWasNotPaid,
 }
 impl From<MarketCreationError> for MarketError {
     fn from(e: MarketCreationError) -> Self {
@@ -480,19 +503,42 @@ pub enum MarketCreationError {
 mod test {
     use super::*;
     use crate::db::TestDB;
+    use nostr_sdk::prelude::Keys;
     use std::rc::Rc;
     use std::sync::Mutex;
+
     #[test]
     fn it_works() {
         let (u1, u2, u3, j1, j2, j3) = (
-            "user1".to_string(),
-            "user2".to_string(),
-            "user3".to_string(),
-            "judge1".to_string(),
-            "judge2".to_string(),
-            "judge3".to_string(),
+            Keys::generate_from_os_random()
+                .key_pair()
+                .unwrap()
+                .public_key(),
+            Keys::generate_from_os_random()
+                .key_pair()
+                .unwrap()
+                .public_key(),
+            Keys::generate_from_os_random()
+                .key_pair()
+                .unwrap()
+                .public_key(),
+            Keys::generate_from_os_random()
+                .key_pair()
+                .unwrap()
+                .public_key(),
+            Keys::generate_from_os_random()
+                .key_pair()
+                .unwrap()
+                .public_key(),
+            Keys::generate_from_os_random()
+                .key_pair()
+                .unwrap()
+                .public_key(),
         );
-        let mut market = Backend::new(DB::Test(Rc::new(Mutex::new(TestDB::default()))));
+        let mut market = Backend::new(
+            DB::Test(Rc::new(Mutex::new(TestDB::default()))),
+            FundingSource::Test,
+        );
         let prediction = "it_works".to_string();
         market
             .new_prediction(
@@ -505,18 +551,9 @@ mod test {
                 Duration::days(1),
             )
             .unwrap();
-        market.create_user(u1.clone()).unwrap();
-        market.create_user(u2.clone()).unwrap();
-        market.create_user(u3.clone()).unwrap();
-        market.create_user(j1.clone()).unwrap();
-        market.create_user(j2.clone()).unwrap();
-        market.create_user(j3.clone()).unwrap();
         market.accept_nomination(&prediction, &j1).unwrap();
         market.accept_nomination(&prediction, &j2).unwrap();
         market.accept_nomination(&prediction, &j3).unwrap();
-        market.deposit(&u1, 100).unwrap();
-        market.deposit(&u2, 100).unwrap();
-        market.deposit(&u3, 100).unwrap();
         market.add_bet(&prediction, &u1, true, 100).unwrap();
         market.add_bet(&prediction, &u2, true, 100).unwrap();
         market.add_bet(&prediction, &u3, true, 100).unwrap();
@@ -524,11 +561,29 @@ mod test {
         market.make_decision(&prediction, &j1, true).unwrap();
         market.make_decision(&prediction, &j2, true).unwrap();
         market.make_decision(&prediction, &j3, true).unwrap();
-        assert_eq!(market.cash_out_user(&prediction, &u1), Ok(89));
-        assert_eq!(market.cash_out_user(&prediction, &u2), Ok(89));
-        assert_eq!(market.cash_out_user(&prediction, &u3), Ok(89));
-        assert_eq!(market.cash_out_judge(&prediction, &j1), Ok(10));
-        assert_eq!(market.cash_out_judge(&prediction, &j2), Ok(10));
-        assert_eq!(market.cash_out_judge(&prediction, &j3), Ok(10));
+        assert_eq!(
+            market.cash_out_user(&prediction, &u1, &Wallet::default()),
+            Ok(89)
+        );
+        assert_eq!(
+            market.cash_out_user(&prediction, &u2, &Wallet::default()),
+            Ok(89)
+        );
+        assert_eq!(
+            market.cash_out_user(&prediction, &u3, &Wallet::default()),
+            Ok(89)
+        );
+        assert_eq!(
+            market.cash_out_judge(&prediction, &j1, &Wallet::default()),
+            Ok(10)
+        );
+        assert_eq!(
+            market.cash_out_judge(&prediction, &j2, &Wallet::default()),
+            Ok(10)
+        );
+        assert_eq!(
+            market.cash_out_judge(&prediction, &j3, &Wallet::default()),
+            Ok(10)
+        );
     }
 }

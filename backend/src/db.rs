@@ -1,5 +1,6 @@
+use crate::funding_source::{Wallet, WalletAccess};
 use crate::platform::{
-    CashOut, JudgeState, MarketCreationError, MarketError, MarketState, Sats, Username,
+    CashOut, JudgeState, MarketCreationError, MarketError, MarketState, Sats, UserPubKey,
 };
 use chrono::{DateTime, Duration, Utc};
 use std::collections::HashMap;
@@ -12,24 +13,20 @@ pub enum DB {
 #[derive(Debug, Default)]
 pub struct TestDB {
     predictions: HashMap<String, Prediction>,
-    users: HashMap<Username, User>,
 }
 #[derive(Debug)]
 pub struct Prediction {
     pub prediction: String,
-    pub bets_true: HashMap<Username, u32>,
-    pub bets_false: HashMap<Username, u32>,
-    pub judges: HashMap<Username, JudgeState>,
+    pub bets_true: HashMap<UserPubKey, Sats>,
+    pub bets_false: HashMap<UserPubKey, Sats>,
+    pub judges: HashMap<UserPubKey, JudgeState>,
     pub judge_share_ppm: u32,
     pub state: MarketState,
     pub trading_end: DateTime<Utc>,
     pub decision_period: Duration,
     pub judge_count: u32,
     pub cash_out: Option<CashOut>,
-}
-#[derive(Debug, Default)]
-pub struct User {
-    sats: Sats,
+    pub wallet: WalletAccess,
 }
 impl DB {
     pub fn add_prediction(
@@ -85,7 +82,7 @@ impl DB {
     pub fn set_judge_accepted_if_nominated(
         &self,
         prediction: &String,
-        judge: &Username,
+        judge: &UserPubKey,
     ) -> Result<(), MarketError> {
         match self {
             Self::Test(db) => {
@@ -107,7 +104,7 @@ impl DB {
     pub fn set_judge_refused_if_nominated(
         &self,
         prediction: &String,
-        judge: &Username,
+        judge: &UserPubKey,
     ) -> Result<(), MarketError> {
         match self {
             Self::Test(db) => {
@@ -129,7 +126,7 @@ impl DB {
     pub fn set_judge_resolved_if_accepted(
         &self,
         prediction: &String,
-        judge: &Username,
+        judge: &UserPubKey,
         decision: bool,
     ) -> Result<(), MarketError> {
         match self {
@@ -170,7 +167,7 @@ impl DB {
     pub fn get_judges(
         &self,
         prediction: &String,
-    ) -> Result<HashMap<Username, JudgeState>, MarketError> {
+    ) -> Result<HashMap<UserPubKey, JudgeState>, MarketError> {
         match self {
             Self::Test(db) => {
                 let mut db = db.lock().unwrap();
@@ -220,18 +217,13 @@ impl DB {
     pub fn add_bet_amount(
         &self,
         prediction: &String,
-        user: &Username,
+        user: &UserPubKey,
         bet: bool,
         amount: Sats,
     ) -> Result<(), MarketError> {
         match self {
             Self::Test(db) => {
                 let mut db = db.lock().unwrap();
-                let total_funds = Self::test_get_balance(&db, user)?;
-                let locked_funds = Self::test_get_locked_balance(&db, user);
-                if amount > total_funds - locked_funds {
-                    return Err(MarketError::NotEnoughFunds);
-                }
                 let prediction = Self::test_get_mut_prediction(&mut db, prediction)?;
                 let bets = if bet {
                     &mut prediction.bets_true
@@ -250,7 +242,7 @@ impl DB {
     pub fn remove_bets(
         &self,
         prediction: &String,
-        user: &Username,
+        user: &UserPubKey,
         bet: bool,
     ) -> Result<Sats, MarketError> {
         match self {
@@ -272,7 +264,7 @@ impl DB {
     }
     pub fn get_user_bets_of_prediction(
         &self,
-        user: &Username,
+        user: &UserPubKey,
         prediction: &String,
     ) -> Result<(Option<Sats>, Option<Sats>), MarketError> {
         match self {
@@ -285,10 +277,10 @@ impl DB {
             }
         }
     }
-    pub fn remove_cash_out_user(
+    pub fn pop_cash_out_user(
         &self,
         prediction: &String,
-        user: &Username,
+        user: &UserPubKey,
     ) -> Result<Sats, MarketError> {
         match self {
             Self::Test(db) => {
@@ -305,10 +297,10 @@ impl DB {
             }
         }
     }
-    pub fn remove_cash_out_judge(
+    pub fn pop_cash_out_judge(
         &self,
         prediction: &String,
-        user: &Username,
+        user: &UserPubKey,
     ) -> Result<Sats, MarketError> {
         match self {
             Self::Test(db) => {
@@ -329,7 +321,7 @@ impl DB {
         &self,
         prediction: &String,
         outcome: bool,
-    ) -> Result<HashMap<Username, u32>, MarketError> {
+    ) -> Result<HashMap<UserPubKey, u32>, MarketError> {
         match self {
             Self::Test(db) => {
                 let mut db = db.lock().unwrap();
@@ -342,103 +334,12 @@ impl DB {
             }
         }
     }
-    pub fn create_user(&self, user: Username) -> Result<(), MarketError> {
+    pub fn get_prediction_wallet(&self, prediction: &String) -> Result<WalletAccess, MarketError> {
         match self {
-            DB::Test(db) => {
+            Self::Test(db) => {
                 let mut db = db.lock().unwrap();
-                if !db.users.contains_key(&user) {
-                    db.users.insert(user, User::default());
-                    Ok(())
-                } else {
-                    Err(MarketError::UserAlreadyExists)
-                }
-            }
-        }
-    }
-    pub fn delete_user(&self, user: &Username) -> Result<(), MarketError> {
-        match self {
-            DB::Test(db) => {
-                let mut db = db.lock().unwrap();
-                if let Some(_) = db.users.remove(user) {
-                    Ok(())
-                } else {
-                    Err(MarketError::UserDoesntExist)
-                }
-            }
-        }
-    }
-    pub fn add_balance(&self, user: &Username, amount: Sats) -> Result<(), MarketError> {
-        match self {
-            DB::Test(db) => {
-                let mut db = db.lock().unwrap();
-                if let Some(user) = db.users.get_mut(user) {
-                    user.sats += amount;
-                    Ok(())
-                } else {
-                    Err(MarketError::UserDoesntExist)
-                }
-            }
-        }
-    }
-    /// Remove balance only if enough is available when excluding locked funds
-    pub fn remove_balance(&self, user: &Username, amount: Sats) -> Result<(), MarketError> {
-        match self {
-            DB::Test(db) => {
-                let mut db = db.lock().unwrap();
-                let locked_funds = Self::test_get_locked_balance(&db, user);
-                if let Some(user) = db.users.get_mut(user) {
-                    if amount > user.sats - locked_funds {
-                        Err(MarketError::NotEnoughFunds)
-                    } else {
-                        user.sats -= amount;
-                        Ok(())
-                    }
-                } else {
-                    Err(MarketError::UserDoesntExist)
-                }
-            }
-        }
-    }
-    fn test_get_locked_balance(db: &MutexGuard<TestDB>, user: &Username) -> Sats {
-        let mut locked_funds = 0;
-        for prediction in db.predictions.values() {
-            match prediction.state {
-                MarketState::Resolved(_) => continue,
-                _ => {}
-            }
-            if let Some(bet) = prediction.bets_true.get(user) {
-                locked_funds += bet;
-            }
-            if let Some(bet) = prediction.bets_false.get(user) {
-                locked_funds += bet;
-            }
-        }
-        locked_funds
-    }
-    fn test_get_balance(db: &MutexGuard<TestDB>, user: &Username) -> Result<Sats, MarketError> {
-        if let Some(user) = db.users.get(user) {
-            Ok(user.sats)
-        } else {
-            Err(MarketError::UserDoesntExist)
-        }
-    }
-    /// Returns balance excluding locked funds
-    pub fn get_balance(&self, user: &Username) -> Result<Sats, MarketError> {
-        match self {
-            DB::Test(db) => {
-                let db = db.lock().unwrap();
-                let locked_funds = Self::test_get_locked_balance(&db, user);
-                let total_funds = Self::test_get_balance(&db, user)?;
-                Ok(total_funds - locked_funds)
-            }
-        }
-    }
-    pub fn get_locked_balance(&self, user: &Username) -> Result<Sats, MarketError> {
-        match self {
-            DB::Test(db) => {
-                let db = db.lock().unwrap();
-                let locked_funds = Self::test_get_locked_balance(&db, user);
-                Ok(locked_funds)
+                let prediction = Self::test_get_mut_prediction(&mut db, prediction)?;
+                Ok(prediction.wallet.clone())
             }
         }
     }
