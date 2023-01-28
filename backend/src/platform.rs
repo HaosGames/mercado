@@ -10,6 +10,7 @@ use crate::hello_world::GetPredictionResponse;
 
 pub type Sats = u32;
 pub type UserPubKey = nostr_sdk::prelude::PublicKey;
+pub type MResult<T> = Result<T, MarketError>;
 
 #[derive(Debug)]
 pub struct Prediction {
@@ -71,7 +72,7 @@ impl Mercado {
         judge_share_ppm: u32,
         trading_end: DateTime<Utc>,
         decision_period: Duration,
-    ) -> Result<(), MarketError> {
+    ) -> MResult<()> {
         if judges.len() < judge_count as usize || judge_count == 0 {
             return Err(MarketCreationError::NotEnoughJudges.into());
         }
@@ -111,7 +112,7 @@ impl Mercado {
         &mut self,
         prediction: &String,
         judge: &UserPubKey,
-    ) -> Result<(), MarketError> {
+    ) -> MResult<()> {
         match self.db.get_prediction_state(prediction).await? {
             MarketState::WaitingForJudges => {}
             _ => return Err(MarketError::WrongMarketState),
@@ -130,7 +131,7 @@ impl Mercado {
         &mut self,
         prediction: &String,
         user: &UserPubKey,
-    ) -> Result<(), MarketError> {
+    ) -> MResult<()> {
         match self.db.get_prediction_state(prediction).await? {
             MarketState::WaitingForJudges => {}
             _ => return Err(MarketError::WrongMarketState),
@@ -145,7 +146,7 @@ impl Mercado {
         prediction: &String,
         user: &UserPubKey,
         decision: bool,
-    ) -> Result<(), MarketError> {
+    ) -> MResult<()> {
         match self.db.get_prediction_state(prediction).await? {
             MarketState::WaitingForDecision => {
                 if self.db.get_trading_end(prediction).await?
@@ -173,7 +174,7 @@ impl Mercado {
             e => e,
         }
     }
-    async fn try_resolve(&mut self, prediction: &String) -> Result<(), MarketError> {
+    async fn try_resolve(&mut self, prediction: &String) -> MResult<()> {
         let mut true_count = 0;
         let mut false_count = 0;
         for state in self.db.get_judge_states(prediction).await? {
@@ -226,7 +227,7 @@ impl Mercado {
         self.db.set_cash_out(prediction, cash_out).await?;
         Ok(())
     }
-    async fn calculate_cash_out(&self, prediction: &String) -> Result<CashOut, MarketError> {
+    async fn calculate_cash_out(&self, prediction: &String) -> MResult<CashOut> {
         if let MarketState::Resolved(outcome) = self.db.get_prediction_state(prediction).await? {
             let bets = self.db.get_bets(prediction, outcome).await?;
             let outcome_amount = self.get_prediction_bets(prediction, outcome).await?;
@@ -315,7 +316,7 @@ impl Mercado {
         out = (out / outcome_judges).trunc();
         out.to_u32().unwrap()
     }
-    async fn try_activate_trading(&mut self, prediction: &String) -> Result<(), MarketError> {
+    async fn try_activate_trading(&mut self, prediction: &String) -> MResult<()> {
         let mut accepted_count = 0;
         for state in self.db.get_judge_states(prediction).await? {
             if state == JudgeState::Accepted {
@@ -335,7 +336,7 @@ impl Mercado {
         user: &UserPubKey,
         bet: bool,
         amount: u32,
-    ) -> Result<(), MarketError> {
+    ) -> MResult<()> {
         match self.db.get_prediction_state(prediction).await? {
             MarketState::Trading => {
                 if self.db.get_trading_end(prediction).await? < Utc::now() {
@@ -362,7 +363,7 @@ impl Mercado {
         user: &UserPubKey,
         bet: bool,
         wallet: &Wallet,
-    ) -> Result<Sats, MarketError> {
+    ) -> MResult<Sats> {
         match self.db.get_prediction_state(prediction).await? {
             MarketState::Trading => {
                 if self.db.get_trading_end(prediction).await? < Utc::now() {
@@ -387,7 +388,7 @@ impl Mercado {
         prediction: &String,
         user: &UserPubKey,
         wallet: &Wallet,
-    ) -> Result<Sats, MarketError> {
+    ) -> MResult<Sats> {
         match self.db.get_prediction_state(prediction).await? {
             MarketState::Refunded(_) => {
                 let mut out = 0;
@@ -408,7 +409,7 @@ impl Mercado {
         prediction: &String,
         user: &UserPubKey,
         wallet: &Wallet,
-    ) -> Result<Sats, MarketError> {
+    ) -> MResult<Sats> {
         match self.db.get_prediction_state(prediction).await? {
             MarketState::Resolved { .. } => {
                 let cash_out = self.db.pop_cash_out_user(prediction, user).await?;
@@ -427,7 +428,7 @@ impl Mercado {
         prediction: &String,
         judge: &UserPubKey,
         wallet: &Wallet,
-    ) -> Result<Sats, MarketError> {
+    ) -> MResult<Sats> {
         match self.db.get_prediction_state(prediction).await? {
             MarketState::Resolved { .. } => {
                 let cash_out = self.db.pop_cash_out_judge(prediction, judge).await?;
@@ -441,7 +442,7 @@ impl Mercado {
             _ => Err(MarketError::WrongMarketState),
         }
     }
-    async fn get_outcome_judge_count(&self, prediction: &String) -> Result<u32, MarketError> {
+    async fn get_outcome_judge_count(&self, prediction: &String) -> MResult<u32> {
         if let MarketState::Resolved(outcome) = self.db.get_prediction_state(prediction).await? {
             let mut count = 0;
             for state in self.db.get_judge_states(prediction).await? {
@@ -459,7 +460,7 @@ impl Mercado {
         &self,
         prediction: &String,
         bet: bool,
-    ) -> Result<Sats, MarketError> {
+    ) -> MResult<Sats> {
         let bets = self.db.get_bets(prediction, bet).await?;
         Ok(bets.values().sum())
     }
@@ -467,10 +468,10 @@ impl Mercado {
         &self,
         prediction: &String,
         user: &UserPubKey,
-    ) -> Result<(Option<Sats>, Option<Sats>), MarketError> {
+    ) -> MResult<(Option<Sats>, Option<Sats>)> {
         self.db.get_user_bets_of_prediction(user, prediction).await
     }
-    pub async fn get_prediction(&self, prediction: &String) -> Result<GetPredictionResponse, MarketError> {
+    pub async fn get_prediction(&self, prediction: &String) -> MResult<GetPredictionResponse> {
         todo!()
     }
     #[cfg(test)]

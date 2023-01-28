@@ -1,4 +1,4 @@
-use crate::platform::{MarketError, Sats};
+use crate::platform::{MarketError, MResult, Sats};
 
 pub type Wallet = String;
 pub type WalletAccess = String;
@@ -26,13 +26,13 @@ impl FundingSource {
             _ => todo!(),
         }
     }
-    pub fn create_invoice(&self, wallet: &Wallet) -> Result<Invoice, MarketError> {
+    pub fn create_invoice(&self, wallet: &Wallet) -> MResult<Invoice> {
         match self {
             Self::Test => Ok(String::from("test")),
             _ => todo!(),
         }
     }
-    pub fn invoice_is_paid(&self, invoice: &Invoice) -> Result<bool, MarketError> {
+    pub fn invoice_is_paid(&self, invoice: &Invoice) -> MResult<bool> {
         match self {
             Self::Test => Ok(true),
             _ => todo!(),
