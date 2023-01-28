@@ -1,12 +1,12 @@
 use crate::db::DB;
 use crate::funding_source::{FundingSource, Wallet, WalletAccess};
+use crate::hello_world::GetPredictionResponse;
 use chrono::{DateTime, Duration, Utc};
 use rust_decimal::prelude::ToPrimitive;
 use rust_decimal::Decimal;
 use std::cmp::Ordering;
 use std::collections::HashMap;
 use thiserror::Error;
-use crate::hello_world::GetPredictionResponse;
 
 pub type Sats = u32;
 pub type UserPubKey = nostr_sdk::prelude::PublicKey;
@@ -456,11 +456,7 @@ impl Mercado {
         }
         Err(MarketError::WrongMarketState)
     }
-    pub async fn get_prediction_bets(
-        &self,
-        prediction: &String,
-        bet: bool,
-    ) -> MResult<Sats> {
+    pub async fn get_prediction_bets(&self, prediction: &String, bet: bool) -> MResult<Sats> {
         let bets = self.db.get_bets(prediction, bet).await?;
         Ok(bets.values().sum())
     }
