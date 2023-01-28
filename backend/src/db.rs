@@ -1,5 +1,5 @@
 use crate::funding_source::{Wallet, WalletAccess};
-use crate::platform::{CashOut, JudgeState, MarketCreationError, MarketError, MarketState, MResult, Prediction, Sats, UserPubKey};
+use crate::mercado::{CashOut, JudgeState, MarketCreationError, MarketError, MarketState, MResult, Prediction, Sats, UserPubKey};
 use chrono::{DateTime, Duration, Utc};
 use std::collections::HashMap;
 use std::sync::Arc;

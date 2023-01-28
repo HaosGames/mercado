@@ -1,4 +1,4 @@
-use crate::platform::{MarketError, MResult, Sats};
+use crate::mercado::{MarketError, MResult, Sats};
 
 pub type Wallet = String;
 pub type WalletAccess = String;

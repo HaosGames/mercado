@@ -3,7 +3,7 @@ use log::{debug, warn};
 use tokio::sync::Mutex;
 use tonic::{transport::Server, Request, Response, Status};
 
-use crate::platform::Mercado;
+use crate::mercado::Mercado;
 use hello_world::api_server::{Api, ApiServer};
 use hello_world::{
     CreatePredictionRequest, GenericResponse, GetPredictionRequest, GetPredictionResponse,
@@ -14,7 +14,7 @@ use crate::funding_source::FundingSource;
 mod api;
 mod db;
 mod funding_source;
-mod platform;
+mod mercado;
 
 pub mod hello_world {
     tonic::include_proto!("api");
