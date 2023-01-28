@@ -1,42 +1,29 @@
 use crate::funding_source::{Wallet, WalletAccess};
 use crate::platform::{
-    CashOut, JudgeState, MarketCreationError, MarketError, MarketState, Sats, UserPubKey,
+    CashOut, JudgeState, MarketCreationError, MarketError, MarketState, Prediction, Sats,
+    UserPubKey,
 };
 use chrono::{DateTime, Duration, Utc};
 use std::collections::HashMap;
-use std::rc::Rc;
-use std::sync::{Mutex, MutexGuard};
+use std::sync::Arc;
+use tokio::sync::{Mutex, MutexGuard};
 
 pub enum DB {
-    Test(Rc<Mutex<TestDB>>),
+    Test(Arc<Mutex<TestDB>>),
 }
 #[derive(Debug, Default)]
 pub struct TestDB {
     predictions: HashMap<String, Prediction>,
 }
-#[derive(Debug)]
-pub struct Prediction {
-    pub prediction: String,
-    pub bets_true: HashMap<UserPubKey, Sats>,
-    pub bets_false: HashMap<UserPubKey, Sats>,
-    pub judges: HashMap<UserPubKey, JudgeState>,
-    pub judge_share_ppm: u32,
-    pub state: MarketState,
-    pub trading_end: DateTime<Utc>,
-    pub decision_period: Duration,
-    pub judge_count: u32,
-    pub cash_out: Option<CashOut>,
-    pub wallet: WalletAccess,
-}
 impl DB {
-    pub fn add_prediction(
+    pub async fn add_prediction(
         &self,
         id: String,
         prediction: Prediction,
     ) -> Result<(), MarketCreationError> {
         match self {
             DB::Test(db) => {
-                let mut db = db.lock().unwrap();
+                let mut db = db.lock().await;
                 if !db.predictions.contains_key(&id) {
                     db.predictions.insert(id, prediction);
                     Ok(())
@@ -56,37 +43,40 @@ impl DB {
             Err(MarketError::MarketDoesntExist)
         }
     }
-    pub fn get_prediction_state(&self, prediction: &String) -> Result<MarketState, MarketError> {
+    pub async fn get_prediction_state(
+        &self,
+        prediction: &String,
+    ) -> Result<MarketState, MarketError> {
         match self {
             Self::Test(db) => {
-                let mut db = db.lock().unwrap();
+                let mut db = db.lock().await;
                 let prediction = Self::test_get_mut_prediction(&mut db, prediction)?;
                 Ok(prediction.state.clone())
             }
         }
     }
-    pub fn set_prediction_state(
+    pub async fn set_prediction_state(
         &self,
         prediction: &String,
         state: MarketState,
     ) -> Result<(), MarketError> {
         match self {
             Self::Test(db) => {
-                let mut db = db.lock().unwrap();
+                let mut db = db.lock().await;
                 let prediction = Self::test_get_mut_prediction(&mut db, prediction)?;
                 prediction.state = state;
                 Ok(())
             }
         }
     }
-    pub fn set_judge_accepted_if_nominated(
+    pub async fn set_judge_accepted_if_nominated(
         &self,
         prediction: &String,
         judge: &UserPubKey,
     ) -> Result<(), MarketError> {
         match self {
             Self::Test(db) => {
-                let mut db = db.lock().unwrap();
+                let mut db = db.lock().await;
                 let prediction = Self::test_get_mut_prediction(&mut db, prediction)?;
                 if let Some(state) = prediction.judges.get_mut(judge) {
                     if *state == JudgeState::Nominated {
@@ -101,14 +91,14 @@ impl DB {
             }
         }
     }
-    pub fn set_judge_refused_if_nominated(
+    pub async fn set_judge_refused_if_nominated(
         &self,
         prediction: &String,
         judge: &UserPubKey,
     ) -> Result<(), MarketError> {
         match self {
             Self::Test(db) => {
-                let mut db = db.lock().unwrap();
+                let mut db = db.lock().await;
                 let prediction = Self::test_get_mut_prediction(&mut db, prediction)?;
                 if let Some(state) = prediction.judges.get_mut(judge) {
                     if *state == JudgeState::Nominated {
@@ -123,7 +113,7 @@ impl DB {
             }
         }
     }
-    pub fn set_judge_resolved_if_accepted(
+    pub async fn set_judge_resolved_if_accepted(
         &self,
         prediction: &String,
         judge: &UserPubKey,
@@ -131,7 +121,7 @@ impl DB {
     ) -> Result<(), MarketError> {
         match self {
             Self::Test(db) => {
-                let mut db = db.lock().unwrap();
+                let mut db = db.lock().await;
                 let prediction = Self::test_get_mut_prediction(&mut db, prediction)?;
                 if let Some(state) = prediction.judges.get_mut(judge) {
                     if *state == JudgeState::Accepted {
@@ -146,75 +136,82 @@ impl DB {
             }
         }
     }
-    pub fn get_trading_end(&self, prediction: &String) -> Result<DateTime<Utc>, MarketError> {
+    pub async fn get_trading_end(&self, prediction: &String) -> Result<DateTime<Utc>, MarketError> {
         match self {
             Self::Test(db) => {
-                let mut db = db.lock().unwrap();
+                let mut db = db.lock().await;
                 let prediction = Self::test_get_mut_prediction(&mut db, prediction)?;
                 Ok(prediction.trading_end.clone())
             }
         }
     }
-    pub fn get_decision_period(&self, prediction: &String) -> Result<Duration, MarketError> {
+    pub async fn get_decision_period(&self, prediction: &String) -> Result<Duration, MarketError> {
         match self {
             Self::Test(db) => {
-                let mut db = db.lock().unwrap();
+                let mut db = db.lock().await;
                 let prediction = Self::test_get_mut_prediction(&mut db, prediction)?;
                 Ok(prediction.decision_period.clone())
             }
         }
     }
-    pub fn get_judges(
+    pub async fn get_judges(
         &self,
         prediction: &String,
     ) -> Result<HashMap<UserPubKey, JudgeState>, MarketError> {
         match self {
             Self::Test(db) => {
-                let mut db = db.lock().unwrap();
+                let mut db = db.lock().await;
                 let prediction = Self::test_get_mut_prediction(&mut db, prediction)?;
                 Ok(prediction.judges.clone())
             }
         }
     }
-    pub fn get_judge_states(&self, prediction: &String) -> Result<Vec<JudgeState>, MarketError> {
+    pub async fn get_judge_states(
+        &self,
+        prediction: &String,
+    ) -> Result<Vec<JudgeState>, MarketError> {
         match self {
             Self::Test(db) => {
-                let mut db = db.lock().unwrap();
+                let mut db = db.lock().await;
                 let prediction = Self::test_get_mut_prediction(&mut db, prediction)?;
                 Ok(prediction.judges.values().cloned().collect())
             }
         }
     }
-    pub fn set_cash_out(&self, prediction: &String, cash_out: CashOut) -> Result<(), MarketError> {
+    pub async fn set_cash_out(
+        &self,
+        prediction: &String,
+        cash_out: CashOut,
+    ) -> Result<(), MarketError> {
         match self {
             Self::Test(db) => {
-                let mut db = db.lock().unwrap();
+                let mut db = db.lock().await;
                 let prediction = Self::test_get_mut_prediction(&mut db, prediction)?;
                 prediction.cash_out = Some(cash_out);
                 Ok(())
             }
         }
     }
-    pub fn get_judge_share_ppm(&self, prediction: &String) -> Result<u32, MarketError> {
+    pub async fn get_judge_share_ppm(&self, prediction: &String) -> Result<u32, MarketError> {
         match self {
             Self::Test(db) => {
-                let mut db = db.lock().unwrap();
+                let mut db = db.lock().await;
                 let prediction = Self::test_get_mut_prediction(&mut db, prediction)?;
                 Ok(prediction.judge_share_ppm)
             }
         }
     }
-    pub fn get_judge_count(&self, prediction: &String) -> Result<u32, MarketError> {
+    pub async fn get_judge_count(&self, prediction: &String) -> Result<u32, MarketError> {
         match self {
             Self::Test(db) => {
-                let mut db = db.lock().unwrap();
+                let mut db = db.lock().await;
                 let prediction = Self::test_get_mut_prediction(&mut db, prediction)?;
                 Ok(prediction.judge_count)
             }
         }
     }
     /// Add amount to new or existing bet if enough unlocked funds are available
-    pub fn add_bet_amount(
+    pub async fn add_bet_amount(
         &self,
         prediction: &String,
         user: &UserPubKey,
@@ -223,7 +220,7 @@ impl DB {
     ) -> Result<(), MarketError> {
         match self {
             Self::Test(db) => {
-                let mut db = db.lock().unwrap();
+                let mut db = db.lock().await;
                 let prediction = Self::test_get_mut_prediction(&mut db, prediction)?;
                 let bets = if bet {
                     &mut prediction.bets_true
@@ -239,7 +236,7 @@ impl DB {
             }
         }
     }
-    pub fn remove_bets(
+    pub async fn remove_bets(
         &self,
         prediction: &String,
         user: &UserPubKey,
@@ -247,7 +244,7 @@ impl DB {
     ) -> Result<Sats, MarketError> {
         match self {
             Self::Test(db) => {
-                let mut db = db.lock().unwrap();
+                let mut db = db.lock().await;
                 let prediction = Self::test_get_mut_prediction(&mut db, prediction)?;
                 let bets = if bet {
                     &mut prediction.bets_true
@@ -262,14 +259,14 @@ impl DB {
             }
         }
     }
-    pub fn get_user_bets_of_prediction(
+    pub async fn get_user_bets_of_prediction(
         &self,
         user: &UserPubKey,
         prediction: &String,
     ) -> Result<(Option<Sats>, Option<Sats>), MarketError> {
         match self {
             Self::Test(db) => {
-                let mut db = db.lock().unwrap();
+                let mut db = db.lock().await;
                 let prediction = Self::test_get_mut_prediction(&mut db, prediction)?;
                 let bet_true = prediction.bets_true.get(user);
                 let bet_false = prediction.bets_false.get(user);
@@ -277,14 +274,14 @@ impl DB {
             }
         }
     }
-    pub fn pop_cash_out_user(
+    pub async fn pop_cash_out_user(
         &self,
         prediction: &String,
         user: &UserPubKey,
     ) -> Result<Sats, MarketError> {
         match self {
             Self::Test(db) => {
-                let mut db = db.lock().unwrap();
+                let mut db = db.lock().await;
                 let prediction = Self::test_get_mut_prediction(&mut db, prediction)?;
                 if let Some(cash_out) = &mut prediction.cash_out {
                     cash_out
@@ -297,14 +294,14 @@ impl DB {
             }
         }
     }
-    pub fn pop_cash_out_judge(
+    pub async fn pop_cash_out_judge(
         &self,
         prediction: &String,
         user: &UserPubKey,
     ) -> Result<Sats, MarketError> {
         match self {
             Self::Test(db) => {
-                let mut db = db.lock().unwrap();
+                let mut db = db.lock().await;
                 let prediction = Self::test_get_mut_prediction(&mut db, prediction)?;
                 if let Some(cash_out) = &mut prediction.cash_out {
                     cash_out
@@ -317,14 +314,14 @@ impl DB {
             }
         }
     }
-    pub fn get_bets(
+    pub async fn get_bets(
         &self,
         prediction: &String,
         outcome: bool,
     ) -> Result<HashMap<UserPubKey, u32>, MarketError> {
         match self {
             Self::Test(db) => {
-                let mut db = db.lock().unwrap();
+                let mut db = db.lock().await;
                 let prediction = Self::test_get_mut_prediction(&mut db, prediction)?;
                 if outcome {
                     Ok(prediction.bets_true.clone())
@@ -334,10 +331,13 @@ impl DB {
             }
         }
     }
-    pub fn get_prediction_wallet(&self, prediction: &String) -> Result<WalletAccess, MarketError> {
+    pub async fn get_prediction_wallet(
+        &self,
+        prediction: &String,
+    ) -> Result<WalletAccess, MarketError> {
         match self {
             Self::Test(db) => {
-                let mut db = db.lock().unwrap();
+                let mut db = db.lock().await;
                 let prediction = Self::test_get_mut_prediction(&mut db, prediction)?;
                 Ok(prediction.wallet.clone())
             }
