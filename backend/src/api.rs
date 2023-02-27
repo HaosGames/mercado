@@ -1,5 +1,8 @@
 use crate::hello_world::api_server::Api;
-use crate::hello_world::{AddBetRequest, CreatePredictionRequest, GenericResponse, GetPredictionRequest, GetPredictionResponse, Invoice, NostrEvent};
+use crate::hello_world::{
+    AddBetRequest, CreatePredictionRequest, GenericResponse, GetPredictionRequest,
+    GetPredictionResponse, Invoice, NostrEvent,
+};
 use crate::mercado::Mercado;
 use log::{debug, warn};
 use tonic::{Request, Response, Status};
@@ -59,15 +62,24 @@ impl Api for MyApi {
         Ok(Response::new(market))
     }
 
-    async fn accept_nomination(&self, request: Request<NostrEvent>) -> Result<Response<GenericResponse>, Status> {
+    async fn accept_nomination(
+        &self,
+        request: Request<NostrEvent>,
+    ) -> Result<Response<GenericResponse>, Status> {
         todo!()
     }
 
-    async fn refuse_nomination(&self, request: Request<NostrEvent>) -> Result<Response<GenericResponse>, Status> {
+    async fn refuse_nomination(
+        &self,
+        request: Request<NostrEvent>,
+    ) -> Result<Response<GenericResponse>, Status> {
         todo!()
     }
 
-    async fn make_decision(&self, request: Request<NostrEvent>) -> Result<Response<GenericResponse>, Status> {
+    async fn make_decision(
+        &self,
+        request: Request<NostrEvent>,
+    ) -> Result<Response<GenericResponse>, Status> {
         todo!()
     }
 

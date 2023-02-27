@@ -12,6 +12,7 @@ name = "cli"
 path = "src/client.rs"
 
 [dependencies]
+async-trait = "0.1"
 tokio = { version = "1.19", features = [ "full" ] }
 rust_decimal = "1.25"
 rust_decimal_macros = "1.25"
@@ -26,7 +27,9 @@ tonic = "0.8"
 prost = "0.11"
 clap = { version = "4.0", features = ["derive"] }
 thiserror = "1.0"
-nostr-sdk = "0.16"
+secp256k1 = { version = "0.26" , features = ["rand-std", "bitcoin-hashes", "global-context"]}
+sqlx = { version = "0.6", features = [ "runtime-tokio-rustls", "sqlite" ] }
+anyhow = "1.0"
 
 [build-dependencies]
 tonic-build = "0.8"

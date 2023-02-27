@@ -1,30 +1,30 @@
-use crate::db::DB;
-use crate::funding_source::{FundingSource, Wallet, WalletAccess};
+use crate::db::{RowId, DB};
+use crate::funding_source::{FundingSource, Invoice, InvoiceState};
 use crate::hello_world::GetPredictionResponse;
 use chrono::{DateTime, Duration, Utc};
 use rust_decimal::prelude::ToPrimitive;
 use rust_decimal::Decimal;
 use std::cmp::Ordering;
 use std::collections::HashMap;
+use std::fmt::{Display, Formatter};
+use std::str::FromStr;
+use std::sync::Arc;
 use thiserror::Error;
 
 pub type Sats = u32;
-pub type UserPubKey = nostr_sdk::prelude::PublicKey;
-pub type MResult<T> = Result<T, MarketError>;
+pub type UserPubKey = secp256k1::PublicKey;
+pub type Result<T> = core::result::Result<T, Error>;
 
 #[derive(Debug)]
 pub struct Prediction {
     pub prediction: String,
-    pub bets_true: HashMap<UserPubKey, Sats>,
-    pub bets_false: HashMap<UserPubKey, Sats>,
-    pub judges: HashMap<UserPubKey, JudgeState>,
+    pub judges: Vec<UserPubKey>,
     pub judge_share_ppm: u32,
     pub state: MarketState,
     pub trading_end: DateTime<Utc>,
     pub decision_period: Duration,
     pub judge_count: u32,
     pub cash_out: Option<CashOut>,
-    pub wallet: WalletAccess,
 }
 #[derive(PartialEq, Debug, Clone)]
 pub enum JudgeState {
@@ -32,6 +32,29 @@ pub enum JudgeState {
     Accepted,
     Refused,
     Resolved(bool),
+}
+impl FromStr for JudgeState {
+    type Err = Error;
+    fn from_str(s: &str) -> core::result::Result<Self, Self::Err> {
+        match s {
+            "Nominated" => Ok(Self::Nominated),
+            "Accepted" => Ok(Self::Accepted),
+            "Refused" => Ok(Self::Refused),
+            "Resolved" => Ok(Self::Resolved(true)),
+            _ => unreachable!(),
+        }
+    }
+}
+impl Display for JudgeState {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        let output = match self {
+            Self::Nominated => "Nominated",
+            Self::Accepted => "Accepted",
+            Self::Refused => "Refused",
+            Self::Resolved(_) => "Resolved",
+        };
+        write!(f, "{}", output)
+    }
 }
 #[derive(PartialEq, Debug, Clone)]
 pub enum MarketState {
@@ -42,37 +65,131 @@ pub enum MarketState {
     Resolved(bool),
     Refunded(RefundReason),
 }
+impl FromStr for MarketState {
+    type Err = Error;
+    fn from_str(s: &str) -> core::result::Result<Self, Self::Err> {
+        match s {
+            "WaitingForJudges" => Ok(Self::WaitingForJudges),
+            "Trading" => Ok(Self::Trading),
+            "TradingStop" => Ok(Self::TradingStop),
+            "WaitingForDecision" => Ok(Self::WaitingForDecision),
+            "Resolved" => Ok(Self::Resolved(true)),
+            "Refunded" => Ok(Self::Refunded(RefundReason::TimeForDecisionRanOut)),
+            _ => unreachable!(),
+        }
+    }
+}
+impl Display for MarketState {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        let output = match self {
+            Self::WaitingForJudges => "WaitingForJudges",
+            Self::Trading => "Trading",
+            Self::TradingStop => "TradingStop",
+            Self::WaitingForDecision => "WaitingForDecision",
+            Self::Resolved(_) => "Resolved",
+            Self::Refunded(_) => "Refunded",
+        };
+        write!(f, "{}", output)
+    }
+}
 #[derive(PartialEq, Debug, Clone)]
 pub enum RefundReason {
     Insolvency,
     TimeForDecisionRanOut,
     Tie,
 }
+impl FromStr for RefundReason {
+    type Err = Error;
+
+    fn from_str(s: &str) -> core::result::Result<Self, Self::Err> {
+        match s {
+            "Insolvency" => Ok(Self::Insolvency),
+            "TimeForDecisionRanOut" => Ok(Self::TimeForDecisionRanOut),
+            "Tie" => Ok(Self::Tie),
+            _ => unreachable!(),
+        }
+    }
+}
+impl Display for RefundReason {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        let output = match self {
+            Self::Insolvency => "Insolvency",
+            Self::TimeForDecisionRanOut => "TimeForDecisionRanOut",
+            Self::Tie => "Tie",
+        };
+        write!(f, "{}", output)
+    }
+}
 #[derive(Debug)]
 pub struct CashOut {
-    pub users: HashMap<UserPubKey, u32>,
-    pub judges: HashMap<UserPubKey, u32>,
+    user: UserPubKey,
+    prediction: RowId,
+    amount: Sats,
+    invoice: Option<String>,
 }
-
 pub struct Mercado {
-    db: DB,
-    funding: FundingSource,
+    db: Box<dyn DB>,
+    funding: Box<dyn FundingSource>,
 }
 
+pub struct Judge {
+    user: UserPubKey,
+    prediction: RowId,
+    state: JudgeState,
+}
+#[derive(Debug, Clone)]
+pub struct Bet {
+    pub(crate) user: UserPubKey,
+    pub(crate) prediction: RowId,
+    pub(crate) bet: bool,
+    pub(crate) amount: Option<Sats>,
+    pub(crate) state: BetState,
+    pub(crate) fund_invoice: Invoice,
+    pub(crate) refund_invoice: Option<Invoice>,
+}
+#[derive(Debug, Clone)]
+pub enum BetState {
+    FundInit,
+    Funded,
+    RefundInit,
+    Refunded,
+}
+impl FromStr for BetState {
+    type Err = Error;
+    fn from_str(s: &str) -> core::result::Result<Self, Self::Err> {
+        match s {
+            "FundInit" => Ok(Self::FundInit),
+            "Funded" => Ok(Self::Funded),
+            "RefundInit" => Ok(Self::RefundInit),
+            "Refunded" => Ok(Self::Refunded),
+            _ => unreachable!(),
+        }
+    }
+}
+impl Display for BetState {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        let output = match self {
+            Self::FundInit => "FundInit",
+            Self::Funded => "Funded",
+            Self::RefundInit => "RefundInit",
+            Self::Refunded => "Refunded",
+        };
+        write!(f, "{}", output)
+    }
+}
 impl Mercado {
-    pub fn new(db: DB, funding: FundingSource) -> Self {
+    pub fn new(db: Box<dyn DB>, funding: Box<dyn FundingSource>) -> Self {
         Self { db, funding }
     }
     pub async fn new_prediction(
         &self,
         prediction: String,
-        id: String,
         judges: Vec<UserPubKey>,
         judge_count: u32,
         judge_share_ppm: u32,
         trading_end: DateTime<Utc>,
         decision_period: Duration,
-    ) -> MResult<()> {
+    ) -> Result<RowId> {
         if judges.len() < judge_count as usize || judge_count == 0 {
             return Err(MarketCreationError::NotEnoughJudges.into());
         }
@@ -85,68 +202,52 @@ impl Mercado {
         if decision_period < Duration::days(1) {
             return Err(MarketCreationError::DecisionPeriodToShort.into());
         }
-        self.db
-            .add_prediction(
-                id,
-                Prediction {
-                    prediction,
-                    bets_true: Default::default(),
-                    bets_false: Default::default(),
-                    judges: judges
-                        .iter()
-                        .map(|user| (user.clone(), JudgeState::Nominated))
-                        .collect(),
-                    judge_count,
-                    judge_share_ppm,
-                    trading_end,
-                    decision_period,
-                    state: MarketState::WaitingForJudges,
-                    cash_out: None,
-                    wallet: self.funding.new_wallet(),
-                },
-            )
+        let id = self
+            .db
+            .add_prediction(Prediction {
+                prediction,
+                judges: judges.iter().map(|user| user.clone()).collect(),
+                judge_count,
+                judge_share_ppm,
+                trading_end,
+                decision_period,
+                state: MarketState::WaitingForJudges,
+                cash_out: None,
+            })
             .await?;
-        Ok(())
+        Ok(id)
     }
-    pub async fn accept_nomination(
-        &mut self,
-        prediction: &String,
-        judge: &UserPubKey,
-    ) -> MResult<()> {
+    pub async fn accept_nomination(&mut self, prediction: &RowId, user: &UserPubKey) -> Result<()> {
         match self.db.get_prediction_state(prediction).await? {
             MarketState::WaitingForJudges => {}
-            _ => return Err(MarketError::WrongMarketState),
+            _ => return Err(Error::WrongMarketState),
         }
         //TODO Check if judge accepted via Nostr
         match self
             .db
-            .set_judge_accepted_if_nominated(prediction, judge)
+            .set_judge_state(prediction, user, JudgeState::Accepted)
             .await
         {
             Ok(_) => self.try_activate_trading(prediction).await,
             e => e,
         }
     }
-    pub async fn refuse_nomination(
-        &mut self,
-        prediction: &String,
-        user: &UserPubKey,
-    ) -> MResult<()> {
+    pub async fn refuse_nomination(&mut self, prediction: &RowId, user: &UserPubKey) -> Result<()> {
         match self.db.get_prediction_state(prediction).await? {
             MarketState::WaitingForJudges => {}
-            _ => return Err(MarketError::WrongMarketState),
+            _ => return Err(Error::WrongMarketState),
         }
         //TODO Check if judge refused via Nostr
         self.db
-            .set_judge_refused_if_nominated(prediction, user)
+            .set_judge_state(prediction, user, JudgeState::Refused)
             .await
     }
     pub async fn make_decision(
         &mut self,
-        prediction: &String,
+        prediction: &RowId,
         user: &UserPubKey,
         decision: bool,
-    ) -> MResult<()> {
+    ) -> Result<()> {
         match self.db.get_prediction_state(prediction).await? {
             MarketState::WaitingForDecision => {
                 if self.db.get_trading_end(prediction).await?
@@ -159,22 +260,22 @@ impl Mercado {
                             MarketState::Refunded(RefundReason::TimeForDecisionRanOut),
                         )
                         .await?;
-                    return Err(MarketError::WrongMarketState);
+                    return Err(Error::WrongMarketState);
                 }
             }
-            _ => return Err(MarketError::WrongMarketState),
+            _ => return Err(Error::WrongMarketState),
         }
         //TODO Check if judge made decision via Nostr
         match self
             .db
-            .set_judge_resolved_if_accepted(prediction, user, decision)
+            .set_judge_state(prediction, user, JudgeState::Resolved(decision))
             .await
         {
             Ok(_) => self.try_resolve(prediction).await,
             e => e,
         }
     }
-    async fn try_resolve(&mut self, prediction: &String) -> MResult<()> {
+    async fn try_resolve(&mut self, prediction: &RowId) -> Result<()> {
         let mut true_count = 0;
         let mut false_count = 0;
         for state in self.db.get_judge_states(prediction).await? {
@@ -202,7 +303,7 @@ impl Mercado {
                 self.db
                     .set_prediction_state(prediction, MarketState::Refunded(RefundReason::Tie))
                     .await?;
-                return Err(MarketError::Tie);
+                return Err(Error::Tie);
             }
             Ordering::Greater => {
                 self.db
@@ -211,25 +312,23 @@ impl Mercado {
             }
         }
         let cash_out = match self.calculate_cash_out(prediction).await {
-            Err(MarketError::Insolvency) => {
+            Err(Error::Insolvency) => {
                 self.db
                     .set_prediction_state(
                         prediction,
                         MarketState::Refunded(RefundReason::Insolvency),
                     )
                     .await?;
-                Err(MarketError::Insolvency)
+                Err(Error::Insolvency)
             }
             e => e,
         }?;
-        //TODO Cash out all users and judges:
-        // Adjust the balances of all users to reflect the cash out
         self.db.set_cash_out(prediction, cash_out).await?;
         Ok(())
     }
-    async fn calculate_cash_out(&self, prediction: &String) -> MResult<CashOut> {
+    async fn calculate_cash_out(&self, prediction: &RowId) -> Result<HashMap<UserPubKey, Sats>> {
         if let MarketState::Resolved(outcome) = self.db.get_prediction_state(prediction).await? {
-            let bets = self.db.get_bets(prediction, outcome).await?;
+            let bets = self.db.get_prediction_bets(prediction, outcome).await?;
             let outcome_amount = self.get_prediction_bets(prediction, outcome).await?;
             let non_outcome_amount = self.get_prediction_bets(prediction, !outcome).await?;
 
@@ -248,7 +347,6 @@ impl Mercado {
             }
 
             // Calculate judges
-            let mut judge_cash_outs = HashMap::new();
             let mut judge_cash_out_amount = 0;
             let judge_outcome_count = self.get_outcome_judge_count(prediction).await?;
             for (judge, state) in self.db.get_judges(prediction).await? {
@@ -261,21 +359,22 @@ impl Mercado {
                             self.db.get_judge_share_ppm(prediction).await?,
                         );
                         judge_cash_out_amount += cash_out;
-                        judge_cash_outs.insert(judge.clone(), cash_out);
+                        if let Some(user_cash_out) = user_cash_outs.remove(&judge) {
+                            user_cash_outs.insert(judge, user_cash_out + cash_out);
+                        } else {
+                            user_cash_outs.insert(judge, cash_out);
+                        }
                     }
                 }
             }
 
             // Check solvency after calculation
             if user_cash_out_amount + judge_cash_out_amount > outcome_amount + non_outcome_amount {
-                return Err(MarketError::Insolvency);
+                return Err(Error::Insolvency);
             }
-            Ok(CashOut {
-                users: user_cash_outs,
-                judges: judge_cash_outs,
-            })
+            Ok(user_cash_outs)
         } else {
-            Err(MarketError::MarketNotResolved)
+            Err(Error::MarketNotResolved)
         }
     }
     pub fn calculate_user_cash_out(
@@ -316,7 +415,7 @@ impl Mercado {
         out = (out / outcome_judges).trunc();
         out.to_u32().unwrap()
     }
-    async fn try_activate_trading(&mut self, prediction: &String) -> MResult<()> {
+    async fn try_activate_trading(&mut self, prediction: &RowId) -> Result<()> {
         let mut accepted_count = 0;
         for state in self.db.get_judge_states(prediction).await? {
             if state == JudgeState::Accepted {
@@ -332,117 +431,170 @@ impl Mercado {
     }
     pub async fn add_bet(
         &mut self,
-        prediction: &String,
+        prediction: &RowId,
         user: &UserPubKey,
         bet: bool,
-        amount: u32,
-    ) -> MResult<()> {
+    ) -> Result<Invoice> {
         match self.db.get_prediction_state(prediction).await? {
             MarketState::Trading => {
                 if self.db.get_trading_end(prediction).await? < Utc::now() {
                     self.db
                         .set_prediction_state(prediction, MarketState::WaitingForDecision)
                         .await?;
-                    return Err(MarketError::WrongMarketState);
+                    return Err(Error::WrongMarketState);
                 }
             }
-            _ => return Err(MarketError::WrongMarketState),
+            _ => return Err(Error::WrongMarketState),
         }
-        let wallet = self.db.get_prediction_wallet(prediction).await?;
-        let invoice = self.funding.create_invoice(&wallet)?;
-        //TODO There could be the case where the invoice is payed after the check
-        // but the bet was not added.
-        if !self.funding.invoice_is_paid(&invoice)? {
-            return Err(MarketError::InvoiceWasNotPaid);
+        let invoice = self.funding.create_invoice().await?;
+        self.db
+            .create_bet(prediction, user, bet, invoice.clone())
+            .await?;
+        //TODO Wait until the invoice is payed or check again later
+        self.check_bet(&invoice).await?;
+        Ok(invoice)
+    }
+    pub async fn check_bet(&self, invoice: &String) -> Result<BetState> {
+        let bet = self.db.get_bet(invoice).await?;
+        match bet.state {
+            BetState::FundInit => {
+                let fund_invoice_state = self.funding.check_invoice(invoice).await?;
+                match fund_invoice_state {
+                    InvoiceState::Settled(amount) => {
+                        if let MarketState::Trading =
+                            self.db.get_prediction_state(&bet.prediction).await?
+                        {
+                            self.db.settle_bet(invoice, amount).await?;
+                            Ok(BetState::Funded)
+                        } else {
+                            self.db.init_bet_refund(invoice, None).await?;
+                            Ok(BetState::RefundInit)
+                        }
+                    }
+                    _ => Ok(BetState::FundInit),
+                }
+            }
+            BetState::RefundInit => {
+                let refund_invoice_state = self
+                    .funding
+                    .check_invoice(&bet.refund_invoice.unwrap())
+                    .await?;
+                match refund_invoice_state {
+                    InvoiceState::Settled(_refund_amount) => {
+                        self.db.settle_bet_refund(invoice).await?;
+                        Ok(BetState::Refunded)
+                    }
+                    InvoiceState::Failed => {
+                        self.db.init_bet_refund(invoice, None).await?;
+                        Ok(BetState::RefundInit)
+                    }
+                    _ => Ok(BetState::RefundInit),
+                }
+            }
+            state => Ok(state),
         }
-        self.db.add_bet_amount(prediction, user, bet, amount).await
     }
     pub async fn cancel_bet(
         &mut self,
-        prediction: &String,
-        user: &UserPubKey,
-        bet: bool,
-        wallet: &Wallet,
-    ) -> MResult<Sats> {
-        match self.db.get_prediction_state(prediction).await? {
-            MarketState::Trading => {
-                if self.db.get_trading_end(prediction).await? < Utc::now() {
+        invoice: &Invoice,
+        refund_invoice: &Invoice,
+    ) -> Result<BetState> {
+        let bet = self.db.get_bet(invoice).await?;
+        let state = self.check_bet(invoice).await?;
+        let market_state = self.db.get_prediction_state(&bet.prediction).await?;
+        match state {
+            BetState::Funded => {
+                match market_state {
+                    MarketState::Trading => {
+                        if self.db.get_trading_end(&bet.prediction).await? < Utc::now() {
+                            self.db
+                                .set_prediction_state(
+                                    &bet.prediction,
+                                    MarketState::WaitingForDecision,
+                                )
+                                .await?;
+                            return Err(Error::WrongMarketState);
+                        }
+                    }
+                    MarketState::Refunded(_) => {}
+                    _ => return Err(Error::WrongMarketState),
+                }
+                self.db
+                    .init_bet_refund(invoice, Some(refund_invoice))
+                    .await?;
+                self.funding
+                    .pay_invoice(&refund_invoice, bet.amount.unwrap())
+                    .await?;
+                Ok(BetState::RefundInit)
+            }
+            BetState::RefundInit => {
+                if let None = bet.refund_invoice {
                     self.db
-                        .set_prediction_state(prediction, MarketState::WaitingForDecision)
+                        .init_bet_refund(invoice, Some(refund_invoice))
                         .await?;
-                    return Err(MarketError::WrongMarketState);
+                    self.funding
+                        .pay_invoice(&refund_invoice, bet.amount.unwrap())
+                        .await?;
+                    Ok(BetState::RefundInit)
+                } else {
+                    todo!()
                 }
             }
-            _ => return Err(MarketError::WrongMarketState),
-        }
-        let amount = self.db.remove_bets(prediction, user, bet).await?;
-        self.funding.send_to_wallet(
-            &self.db.get_prediction_wallet(prediction).await?,
-            wallet,
-            amount,
-        )?;
-        Ok(amount)
-    }
-    pub async fn refund_user(
-        &mut self,
-        prediction: &String,
-        user: &UserPubKey,
-        wallet: &Wallet,
-    ) -> MResult<Sats> {
-        match self.db.get_prediction_state(prediction).await? {
-            MarketState::Refunded(_) => {
-                let mut out = 0;
-                out += self.db.remove_bets(prediction, user, true).await?;
-                out += self.db.remove_bets(prediction, user, false).await?;
-                self.funding.send_to_wallet(
-                    &self.db.get_prediction_wallet(prediction).await?,
-                    wallet,
-                    out,
-                )?;
-                Ok(out)
-            }
-            _ => Err(MarketError::WrongMarketState),
+            state => Ok(state),
         }
     }
     pub async fn cash_out_user(
         &mut self,
-        prediction: &String,
+        prediction: &RowId,
         user: &UserPubKey,
-        wallet: &Wallet,
-    ) -> MResult<Sats> {
+        invoice: &Invoice,
+    ) -> Result<Sats> {
         match self.db.get_prediction_state(prediction).await? {
-            MarketState::Resolved { .. } => {
-                let cash_out = self.db.pop_cash_out_user(prediction, user).await?;
-                self.funding.send_to_wallet(
-                    &self.db.get_prediction_wallet(prediction).await?,
-                    wallet,
-                    cash_out,
-                )?;
-                Ok(cash_out)
+            MarketState::Resolved { .. } => {}
+            _ => return Err(Error::WrongMarketState),
+        }
+        let (cash_out_invoice, amount) = self.db.get_cash_out(prediction, user).await?;
+        if let Some(cash_out_invoice) = cash_out_invoice {
+            match self.funding.check_invoice(&cash_out_invoice).await? {
+                InvoiceState::Created | InvoiceState::Failed => {
+                    if *invoice != cash_out_invoice {
+                        self.db
+                            .set_cash_out_invoice(prediction, user, invoice.clone())
+                            .await?;
+                        self.funding.pay_invoice(invoice, amount).await?;
+                    } else {
+                        self.funding.pay_invoice(&cash_out_invoice, amount).await?;
+                    }
+                    Ok(amount)
+                }
+                InvoiceState::PayInit(_) => {
+                    if *invoice == cash_out_invoice {
+                        Err(Error::Other(
+                            "Cash out was already initialised and is still pending",
+                        ))
+                    } else {
+                        Err(Error::Other("Cash out was already initialised with another invoice which is still pending"))
+                    }
+                }
+                InvoiceState::Settled(_) => {
+                    if *invoice == cash_out_invoice {
+                        Err(Error::Other("Cash out was already successfully payed out"))
+                    } else {
+                        Err(Error::Other(
+                            "Cash out was already successfully payed out with another invoice",
+                        ))
+                    }
+                }
             }
-            _ => Err(MarketError::WrongMarketState),
+        } else {
+            self.db
+                .set_cash_out_invoice(prediction, user, invoice.clone())
+                .await?;
+            self.funding.pay_invoice(invoice, amount).await?;
+            Ok(amount)
         }
     }
-    pub async fn cash_out_judge(
-        &mut self,
-        prediction: &String,
-        judge: &UserPubKey,
-        wallet: &Wallet,
-    ) -> MResult<Sats> {
-        match self.db.get_prediction_state(prediction).await? {
-            MarketState::Resolved { .. } => {
-                let cash_out = self.db.pop_cash_out_judge(prediction, judge).await?;
-                self.funding.send_to_wallet(
-                    &self.db.get_prediction_wallet(prediction).await?,
-                    wallet,
-                    cash_out,
-                )?;
-                Ok(cash_out)
-            }
-            _ => Err(MarketError::WrongMarketState),
-        }
-    }
-    async fn get_outcome_judge_count(&self, prediction: &String) -> MResult<u32> {
+    async fn get_outcome_judge_count(&self, prediction: &RowId) -> Result<u32> {
         if let MarketState::Resolved(outcome) = self.db.get_prediction_state(prediction).await? {
             let mut count = 0;
             for state in self.db.get_judge_states(prediction).await? {
@@ -454,37 +606,40 @@ impl Mercado {
             }
             return Ok(count);
         }
-        Err(MarketError::WrongMarketState)
+        Err(Error::WrongMarketState)
     }
-    pub async fn get_prediction_bets(&self, prediction: &String, bet: bool) -> MResult<Sats> {
-        let bets = self.db.get_bets(prediction, bet).await?;
+    pub async fn get_prediction_bets(&self, prediction: &RowId, bet: bool) -> Result<Sats> {
+        let bets = self.db.get_prediction_bets(prediction, bet).await?;
         Ok(bets.values().sum())
     }
-    pub async fn get_bets(
+    pub async fn get_user_prediction_bets(
         &self,
-        prediction: &String,
+        prediction: &RowId,
         user: &UserPubKey,
-    ) -> MResult<(Option<Sats>, Option<Sats>)> {
-        self.db.get_user_bets_of_prediction(user, prediction).await
-    }
-    pub async fn get_prediction(&self, prediction: &String) -> MResult<GetPredictionResponse> {
-        todo!()
+    ) -> Result<Vec<Bet>> {
+        self.db.get_user_prediction_bets(user, prediction).await
     }
     #[cfg(test)]
-    async fn force_decision_period(&self, prediction: &String) -> Result<(), MarketError> {
+    async fn force_decision_period(&self, prediction: &RowId) -> Result<()> {
         match self.db.get_prediction_state(prediction).await? {
             MarketState::Trading => {
                 self.db
                     .set_prediction_state(prediction, MarketState::WaitingForDecision)
                     .await
             }
-            _ => Err(MarketError::WrongMarketState),
+            _ => Err(Error::WrongMarketState),
         }
+    }
+    #[cfg(test)]
+    async fn pay_bet(&self, invoice: &Invoice, amount: Sats) -> Result<()> {
+        self.funding.pay_invoice(invoice, amount).await?;
+        self.check_bet(invoice).await?;
+        Ok(())
     }
 }
 
-#[derive(Error, PartialEq, Debug)]
-pub enum MarketError {
+#[derive(Error, Debug)]
+pub enum Error {
     #[error("")]
     NotEnoughFunds,
     #[error("")]
@@ -519,7 +674,7 @@ pub enum MarketError {
     Tie,
     #[error("The market is already trading")]
     TradingActive,
-    #[error("The market has the wrong State to execute this operation")]
+    #[error("The market has the wrong state to execute this operation")]
     WrongMarketState,
     #[error("There is no CashOut for '{0}'")]
     NoCashOutFor(UserPubKey),
@@ -527,8 +682,16 @@ pub enum MarketError {
     MarketCreation(MarketCreationError),
     #[error("")]
     InvoiceWasNotPaid,
+    #[error("")]
+    BetGotRefunded,
+    #[error("")]
+    SQLiteError(#[from] sqlx::Error),
+    #[error("")]
+    InvoiceDoesntExist,
+    #[error("")]
+    Other(&'static str),
 }
-impl From<MarketCreationError> for MarketError {
+impl From<MarketCreationError> for Error {
     fn from(e: MarketCreationError) -> Self {
         Self::MarketCreation(e)
     }
@@ -553,48 +716,29 @@ pub enum MarketCreationError {
 #[cfg(test)]
 mod test {
     use super::*;
-    use crate::db::TestDB;
-    use nostr_sdk::prelude::Keys;
+    use crate::db::SQLite;
+    use crate::funding_source::TestFundingSource;
+    use secp256k1::{generate_keypair, rand};
     use std::sync::Arc;
     use tokio::sync::Mutex;
 
     #[tokio::test]
     async fn it_works() {
-        let (u1, u2, u3, j1, j2, j3) = (
-            Keys::generate_from_os_random()
-                .key_pair()
-                .unwrap()
-                .public_key(),
-            Keys::generate_from_os_random()
-                .key_pair()
-                .unwrap()
-                .public_key(),
-            Keys::generate_from_os_random()
-                .key_pair()
-                .unwrap()
-                .public_key(),
-            Keys::generate_from_os_random()
-                .key_pair()
-                .unwrap()
-                .public_key(),
-            Keys::generate_from_os_random()
-                .key_pair()
-                .unwrap()
-                .public_key(),
-            Keys::generate_from_os_random()
-                .key_pair()
-                .unwrap()
-                .public_key(),
-        );
+        let (_, u1) = generate_keypair(&mut rand::thread_rng());
+        let (_, u2) = generate_keypair(&mut rand::thread_rng());
+        let (_, u3) = generate_keypair(&mut rand::thread_rng());
+        let (_, j1) = generate_keypair(&mut rand::thread_rng());
+        let (_, j2) = generate_keypair(&mut rand::thread_rng());
+        let (_, j3) = generate_keypair(&mut rand::thread_rng());
+
         let mut market = Mercado::new(
-            DB::Test(Arc::new(Mutex::new(TestDB::default()))),
-            FundingSource::Test,
+            Box::new(SQLite::new().await),
+            Box::new(TestFundingSource::default()),
         );
         let prediction = "it_works".to_string();
-        market
+        let prediction = market
             .new_prediction(
                 "It works".to_string(),
-                prediction.clone(),
                 vec![j1.clone(), j2.clone(), j3.clone()],
                 3,
                 100000,
@@ -606,48 +750,57 @@ mod test {
         market.accept_nomination(&prediction, &j1).await.unwrap();
         market.accept_nomination(&prediction, &j2).await.unwrap();
         market.accept_nomination(&prediction, &j3).await.unwrap();
-        market.add_bet(&prediction, &u1, true, 100).await.unwrap();
-        market.add_bet(&prediction, &u2, true, 100).await.unwrap();
-        market.add_bet(&prediction, &u3, true, 100).await.unwrap();
+        let i1 = market.add_bet(&prediction, &u1, true).await.unwrap();
+        let i2 = market.add_bet(&prediction, &u2, true).await.unwrap();
+        let i3 = market.add_bet(&prediction, &u3, true).await.unwrap();
+        market.pay_bet(&i1, 100);
+        market.pay_bet(&i2, 100);
+        market.pay_bet(&i3, 100);
         market.force_decision_period(&prediction).await.unwrap();
         market.make_decision(&prediction, &j1, true).await.unwrap();
         market.make_decision(&prediction, &j2, true).await.unwrap();
         market.make_decision(&prediction, &j3, true).await.unwrap();
         assert_eq!(
             market
-                .cash_out_user(&prediction, &u1, &Wallet::default())
-                .await,
-            Ok(89)
+                .cash_out_user(&prediction, &u1, &"i1".to_string())
+                .await
+                .unwrap(),
+            89
         );
         assert_eq!(
             market
-                .cash_out_user(&prediction, &u2, &Wallet::default())
-                .await,
-            Ok(89)
+                .cash_out_user(&prediction, &u2, &"i2".to_string())
+                .await
+                .unwrap(),
+            89
         );
         assert_eq!(
             market
-                .cash_out_user(&prediction, &u3, &Wallet::default())
-                .await,
-            Ok(89)
+                .cash_out_user(&prediction, &u3, &"i3".to_string())
+                .await
+                .unwrap(),
+            89
         );
         assert_eq!(
             market
-                .cash_out_judge(&prediction, &j1, &Wallet::default())
-                .await,
-            Ok(10)
+                .cash_out_user(&prediction, &j1, &"i4".to_string())
+                .await
+                .unwrap(),
+            10
         );
         assert_eq!(
             market
-                .cash_out_judge(&prediction, &j2, &Wallet::default())
-                .await,
-            Ok(10)
+                .cash_out_user(&prediction, &j2, &"i5".to_string())
+                .await
+                .unwrap(),
+            10
         );
         assert_eq!(
             market
-                .cash_out_judge(&prediction, &j3, &Wallet::default())
-                .await,
-            Ok(10)
+                .cash_out_user(&prediction, &j3, &"i6".to_string())
+                .await
+                .unwrap(),
+            10
         );
     }
 }

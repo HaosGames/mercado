@@ -1,14 +1,14 @@
-use crate::api::MyApi;
+//use crate::api::MyApi;
 use std::sync::Arc;
 use tokio::sync::Mutex;
 use tonic::transport::Server;
 
-use crate::db::{TestDB, DB};
+use crate::db::{SQLite, DB};
 use crate::funding_source::FundingSource;
 use crate::hello_world::api_server::ApiServer;
 use crate::mercado::Mercado;
 
-mod api;
+//mod api;
 mod db;
 mod funding_source;
 mod mercado;
@@ -19,18 +19,18 @@ mod hello_world {
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let addr = "[::1]:50051".parse()?;
-    let market = Mercado::new(
-        DB::Test(Arc::new(Mutex::new(TestDB::default()))),
-        FundingSource::Test,
-    );
-    let api = MyApi::new(market);
+    /*let addr = "[::1]:50051".parse()?;
+        let market = Mercado::new(
+            DB::Test(Arc::new(Mutex::new(SQLite::new("memory")))),
+            FundingSource::Test,
+        );
+        let api = MyApi::new(market);
 
-    Server::builder()
-        .add_service(ApiServer::new(api))
-        .serve(addr)
-        .await?;
-
+        Server::builder()
+            .add_service(ApiServer::new(api))
+            .serve(addr)
+            .await?;
+    */
     Ok(())
 }
 
