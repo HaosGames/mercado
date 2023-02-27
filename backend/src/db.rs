@@ -1,11 +1,11 @@
 use crate::funding_source::Invoice;
 use crate::mercado::{
-    Bet, BetState, CashOut, Error, JudgeState, MarketState, Prediction, RefundReason, Result, Sats,
-    UserPubKey,
+    Bet, BetState, JudgeState, MarketState, Prediction, RefundReason, Sats, UserPubKey,
 };
+use anyhow::{Context, Result};
 use async_trait::async_trait;
 use chrono::{DateTime, Duration, TimeZone, Utc};
-use sqlx::{query, Connection, Executor, Row, SqliteConnection, SqlitePool, Pool};
+use sqlx::{query, Executor, Pool, Row, SqlitePool};
 use std::collections::HashMap;
 use std::str::FromStr;
 
@@ -205,8 +205,8 @@ impl DB for SQLite {
         self.connection
             .execute(
                 query(
-                    "UPDATE predictions\
-                SET state = ?\
+                    "UPDATE predictions \
+                SET state = ? \
                 WHERE rowid = ?",
                 )
                 .bind(state.to_string())
@@ -218,8 +218,8 @@ impl DB for SQLite {
                 self.connection
                     .execute(
                         query(
-                            "UPDATE predictions\
-                SET outcome = ?\
+                            "UPDATE predictions \
+                SET outcome = ? \
                 WHERE rowid = ?",
                         )
                         .bind(outcome)
@@ -231,8 +231,8 @@ impl DB for SQLite {
                 self.connection
                     .execute(
                         query(
-                            "UPDATE predictions\
-                SET refund_reason = ?\
+                            "UPDATE predictions \
+                SET refund_reason = ? \
                 WHERE rowid = ?",
                         )
                         .bind(reason.to_string())
@@ -300,7 +300,7 @@ impl DB for SQLite {
                     query(
                         "UPDATE judges SET \
                     decision = ? \
-                    WHERE user = ?, prediction = ?",
+                    WHERE user = ? AND prediction = ?",
                     )
                     .bind(decision)
                     .bind(user.to_string())
@@ -330,11 +330,11 @@ impl DB for SQLite {
     }
     async fn get_judges(&self, prediction: &RowId) -> Result<HashMap<UserPubKey, JudgeState>> {
         let mut judges = HashMap::default();
-        let mut statement = query(
+        let statement = query(
             "SELECT user, state, decision FROM judges \
                 WHERE prediction = ?",
         );
-        let mut rows = self
+        let rows = self
             .connection
             .fetch_all(statement.bind(prediction))
             .await?;
@@ -369,7 +369,7 @@ impl DB for SQLite {
                 "INSERT INTO cash_outs (\
             user,\
             prediction,\
-            amount)\
+            amount) \
             VALUES (?,?,?)",
             );
             self.connection
@@ -397,7 +397,7 @@ impl DB for SQLite {
         Ok(judge_count)
     }
     async fn get_bet(&self, invoice: &Invoice) -> Result<Bet> {
-        let mut stmt = query(
+        let stmt = query(
             "SELECT user, prediction, bet, amount, state, refund_invoice \
                 FROM bets WHERE fund_invoice = ?",
         );
@@ -436,17 +436,19 @@ impl DB for SQLite {
         self.connection
             .execute(
                 query(
-                    "INSERT INTO bets (\
-                user,\
-                prediction,\
-                bet,\
-                fund_invoice)\
-                VALUES (?,?,?,?)",
+                    "INSERT INTO bets ( \
+                user, \
+                prediction, \
+                bet, \
+                fund_invoice, \
+                state) \
+                VALUES (?,?,?,?,?)",
                 )
                 .bind(user.to_string())
                 .bind(prediction)
                 .bind(bet)
-                .bind(invoice),
+                .bind(invoice)
+                    .bind(BetState::FundInit.to_string()),
             )
             .await?;
         Ok(())
@@ -502,12 +504,12 @@ impl DB for SQLite {
         user: &UserPubKey,
         prediction: &RowId,
     ) -> Result<Vec<Bet>> {
-        let mut stmt = query(
-            "SELECT user, prediction, bet, amount, state, refund_invoice \
+        let stmt = query(
+            "SELECT user, prediction, bet, amount, state, refund_invoice, fund_invoice \
                 FROM bets WHERE user = ? AND prediction = ?",
         );
         let mut bets = Vec::new();
-        let mut rows = self
+        let rows = self
             .connection
             .fetch_all(stmt.bind(user.to_string()).bind(prediction))
             .await?;
@@ -546,7 +548,7 @@ impl DB for SQLite {
         user: &UserPubKey,
         cash_out_invoice: Invoice,
     ) -> Result<()> {
-        let mut stmt = query(
+        let stmt = query(
             "UPDATE cash_outs\
                 SET invoice = ?\
                 WHERE user = ? AND prediction = ?",
@@ -573,7 +575,7 @@ impl DB for SQLite {
                     .bind(user.to_string())
                     .bind(prediction),
             )
-            .await?;
+            .await.with_context(|| format!("no cash out for user {} and prediction {}", user, prediction))?;
         Ok((row.try_get("invoice").ok(), row.get("amount")))
     }
 
@@ -582,12 +584,12 @@ impl DB for SQLite {
         prediction: &RowId,
         outcome: bool,
     ) -> Result<HashMap<UserPubKey, Sats>> {
-        let mut stmt = query(
-            "SELECT user, prediction, bet, amount, state, refund_invoice \
+        let stmt = query(
+            "SELECT user, prediction, bet, amount, state, refund_invoice, fund_invoice \
                 FROM bets WHERE bet = ? AND prediction = ?",
         );
         let mut bets = Vec::new();
-        let mut rows = self
+        let rows = self
             .connection
             .fetch_all(stmt.bind(outcome).bind(prediction))
             .await?;
@@ -620,7 +622,7 @@ impl DB for SQLite {
         let mut aggregated_bets = HashMap::new();
         for bet in bets {
             if let Some(bet_amount) = bet.amount {
-                if let Some(mut amount) = aggregated_bets.get_mut(&bet.user) {
+                if let Some(amount) = aggregated_bets.get_mut(&bet.user) {
                     *amount += bet_amount;
                 } else {
                     aggregated_bets.insert(bet.user, bet_amount);

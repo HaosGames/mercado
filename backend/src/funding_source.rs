@@ -1,4 +1,5 @@
-use crate::mercado::{Error, Result, Sats};
+use crate::mercado::{MercadoError, Sats};
+use anyhow::{bail, Result};
 use async_trait::async_trait;
 use secp256k1::{generate_keypair, rand};
 use std::collections::HashMap;
@@ -46,7 +47,7 @@ impl FundingSource for TestFundingSource {
         if let Some(state) = outgoing.get(invoice) {
             Ok(state.clone())
         } else {
-            Err(Error::Other("Invoice doesn't exist"))
+            bail!(MercadoError::Other("Invoice doesn't exist"))
         }
     }
 }
