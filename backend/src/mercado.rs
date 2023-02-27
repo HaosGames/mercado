@@ -8,6 +8,7 @@ use std::cmp::Ordering;
 use std::collections::HashMap;
 use std::fmt::{Display, Formatter};
 use std::str::FromStr;
+use std::sync::Arc;
 use thiserror::Error;
 
 pub type Sats = u32;
@@ -126,8 +127,8 @@ pub struct CashOut {
     invoice: Option<String>,
 }
 pub struct Mercado {
-    db: Box<dyn DB>,
-    funding: Box<dyn FundingSource>,
+    db: Arc<Box<dyn DB + Send + Sync>>,
+    funding: Arc<Box<dyn FundingSource + Send + Sync>>,
 }
 
 pub struct Judge {
@@ -176,8 +177,14 @@ impl Display for BetState {
     }
 }
 impl Mercado {
-    pub fn new(db: Box<dyn DB>, funding: Box<dyn FundingSource>) -> Self {
-        Self { db, funding }
+    pub fn new(
+        db: Box<dyn DB + Send + Sync>,
+        funding: Box<dyn FundingSource + Send + Sync>,
+    ) -> Self {
+        Self {
+            db: Arc::new(db),
+            funding: Arc::new(funding),
+        }
     }
     pub async fn new_prediction(
         &self,
