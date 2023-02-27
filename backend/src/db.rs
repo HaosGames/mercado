@@ -172,8 +172,8 @@ impl DB for SQLite {
         let state = MarketState::from_str(
             self.connection
                 .fetch_one(query("SELECT state FROM predictions WHERE rowid = ?").bind(prediction))
-                .await?
-                .get(0),
+                .await.with_context(|| format!("couldn't get state for prediction {}", prediction))?
+                .get("state"),
         )?;
         match state {
             MarketState::Resolved(_) => {
@@ -182,8 +182,8 @@ impl DB for SQLite {
                     .fetch_one(
                         query("SELECT outcome FROM predictions WHERE rowid = ?").bind(prediction),
                     )
-                    .await?
-                    .get(0);
+                    .await.with_context(|| format!("couldn't get outcome for prediction {}", prediction))?
+                    .get("outcome");
                 Ok(MarketState::Resolved(outcome))
             }
             MarketState::Refunded(_) => {
@@ -194,7 +194,7 @@ impl DB for SQLite {
                                 .bind(prediction),
                         )
                         .await?
-                        .get(0),
+                        .get("refund_reason"),
                 )?;
                 Ok(MarketState::Refunded(reason))
             }
@@ -448,7 +448,7 @@ impl DB for SQLite {
                 .bind(prediction)
                 .bind(bet)
                 .bind(invoice)
-                    .bind(BetState::FundInit.to_string()),
+                    .bind(BetState::FundInit.to_string())
             )
             .await?;
         Ok(())
@@ -549,17 +549,17 @@ impl DB for SQLite {
         cash_out_invoice: Invoice,
     ) -> Result<()> {
         let stmt = query(
-            "UPDATE cash_outs\
-                SET invoice = ?\
+            "UPDATE cash_outs \
+                SET invoice = ? \
                 WHERE user = ? AND prediction = ?",
         );
         self.connection
             .execute(
-                stmt.bind(cash_out_invoice)
+                stmt.bind(cash_out_invoice.clone())
                     .bind(user.to_string())
                     .bind(prediction),
             )
-            .await?;
+            .await.with_context(|| format!("couldn't set cash out invoice {}, for user {} and prediction {}", cash_out_invoice, user, prediction))?;
         Ok(())
     }
 
@@ -576,7 +576,12 @@ impl DB for SQLite {
                     .bind(prediction),
             )
             .await.with_context(|| format!("no cash out for user {} and prediction {}", user, prediction))?;
-        Ok((row.try_get("invoice").ok(), row.get("amount")))
+        let amount = row.get("amount");
+        let invoice = match row.get("invoice") {
+            "" => None,
+            v => Some(v.to_string()),
+        };
+        Ok((invoice, amount))
     }
 
     async fn get_prediction_bets(

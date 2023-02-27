@@ -344,6 +344,9 @@ impl Mercado {
                     non_outcome_amount,
                     self.db.get_judge_share_ppm(prediction).await?,
                 );
+                if cash_out == 0 {
+                    continue;
+                }
                 user_cash_out_amount += cash_out;
                 user_cash_outs.insert(user.clone(), cash_out);
             }
@@ -360,6 +363,9 @@ impl Mercado {
                             non_outcome_amount,
                             self.db.get_judge_share_ppm(prediction).await?,
                         );
+                        if cash_out == 0 {
+                            continue;
+                        }
                         judge_cash_out_amount += cash_out;
                         if let Some(user_cash_out) = user_cash_outs.remove(&judge) {
                             user_cash_outs.insert(judge, user_cash_out + cash_out);
@@ -573,7 +579,7 @@ impl Mercado {
                     if *invoice != cash_out_invoice {
                         self.db
                             .set_cash_out_invoice(prediction, user, invoice.clone())
-                            .await?;
+                            .await.context("couldn't set cash out invoice")?;
                         self.funding.pay_invoice(invoice, amount).await?;
                     } else {
                         self.funding.pay_invoice(&cash_out_invoice, amount).await?;
@@ -582,22 +588,16 @@ impl Mercado {
                 }
                 InvoiceState::PayInit(_) => {
                     if *invoice == cash_out_invoice {
-                        bail!(MercadoError::Other(
-                            "Cash out was already initialised and is still pending",
-                        ))
+                        bail!("Cash out was already initialised and is still pending")
                     } else {
-                        bail!(MercadoError::Other("Cash out was already initialised with another invoice which is still pending"))
+                        bail!("Cash out was already initialised with another invoice which is still pending")
                     }
                 }
                 InvoiceState::Settled(_) => {
                     if *invoice == cash_out_invoice {
-                        bail!(MercadoError::Other(
-                            "Cash out was already successfully payed out"
-                        ))
+                        bail!("Cash out was already successfully payed out")
                     } else {
-                        bail!(MercadoError::Other(
-                            "Cash out was already successfully payed out with another invoice",
-                        ))
+                        bail!("Cash out was already successfully payed out with another invoice")
                     }
                 }
             }
@@ -768,9 +768,9 @@ mod test {
         let i1 = market.add_bet(&prediction, &u1, true).await.unwrap();
         let i2 = market.add_bet(&prediction, &u2, true).await.unwrap();
         let i3 = market.add_bet(&prediction, &u3, true).await.unwrap();
-        market.pay_bet(&i1, 100);
-        market.pay_bet(&i2, 100);
-        market.pay_bet(&i3, 100);
+        market.pay_bet(&i1, 100).await.unwrap();
+        market.pay_bet(&i2, 100).await.unwrap();
+        market.pay_bet(&i3, 100).await.unwrap();
         market.force_decision_period(&prediction).await.unwrap();
         market.make_decision(&prediction, &j1, true).await.unwrap();
         market.make_decision(&prediction, &j2, true).await.unwrap();

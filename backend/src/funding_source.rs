@@ -37,8 +37,18 @@ impl FundingSource for TestFundingSource {
     }
     async fn pay_invoice(&self, invoice: &Invoice, amount: Sats) -> Result<InvoiceState> {
         let mut outgoing = self.outgoing.lock().unwrap();
-        if let None = outgoing.get(invoice) {
-            outgoing.insert(invoice.clone(), InvoiceState::Settled(amount));
+        match outgoing.get(invoice) {
+            None => {
+                outgoing.insert(invoice.clone(), InvoiceState::Settled(amount));
+            }
+            Some(state) => {
+                match state {
+                    InvoiceState::Created | InvoiceState::Failed => {
+                        outgoing.insert(invoice.clone(), InvoiceState::Settled(amount));
+                    }
+                    state => return Ok(state.clone())
+                }
+            }
         }
         Ok(InvoiceState::Settled(amount))
     }
