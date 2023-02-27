@@ -172,7 +172,8 @@ impl DB for SQLite {
         let state = MarketState::from_str(
             self.connection
                 .fetch_one(query("SELECT state FROM predictions WHERE rowid = ?").bind(prediction))
-                .await.with_context(|| format!("couldn't get state for prediction {}", prediction))?
+                .await
+                .with_context(|| format!("couldn't get state for prediction {}", prediction))?
                 .get("state"),
         )?;
         match state {
@@ -182,7 +183,8 @@ impl DB for SQLite {
                     .fetch_one(
                         query("SELECT outcome FROM predictions WHERE rowid = ?").bind(prediction),
                     )
-                    .await.with_context(|| format!("couldn't get outcome for prediction {}", prediction))?
+                    .await
+                    .with_context(|| format!("couldn't get outcome for prediction {}", prediction))?
                     .get("outcome");
                 Ok(MarketState::Resolved(outcome))
             }
@@ -448,7 +450,7 @@ impl DB for SQLite {
                 .bind(prediction)
                 .bind(bet)
                 .bind(invoice)
-                    .bind(BetState::FundInit.to_string())
+                .bind(BetState::FundInit.to_string()),
             )
             .await?;
         Ok(())
@@ -559,7 +561,13 @@ impl DB for SQLite {
                     .bind(user.to_string())
                     .bind(prediction),
             )
-            .await.with_context(|| format!("couldn't set cash out invoice {}, for user {} and prediction {}", cash_out_invoice, user, prediction))?;
+            .await
+            .with_context(|| {
+                format!(
+                    "couldn't set cash out invoice {}, for user {} and prediction {}",
+                    cash_out_invoice, user, prediction
+                )
+            })?;
         Ok(())
     }
 
@@ -575,7 +583,13 @@ impl DB for SQLite {
                     .bind(user.to_string())
                     .bind(prediction),
             )
-            .await.with_context(|| format!("no cash out for user {} and prediction {}", user, prediction))?;
+            .await
+            .with_context(|| {
+                format!(
+                    "no cash out for user {} and prediction {}",
+                    user, prediction
+                )
+            })?;
         let amount = row.get("amount");
         let invoice = match row.get("invoice") {
             "" => None,

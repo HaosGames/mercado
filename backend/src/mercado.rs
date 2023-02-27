@@ -572,14 +572,19 @@ impl Mercado {
             MarketState::Resolved { .. } => {}
             _ => bail!(MercadoError::WrongMarketState),
         }
-        let (cash_out_invoice, amount) = self.db.get_cash_out(prediction, user).await.context("no cash out")?;
+        let (cash_out_invoice, amount) = self
+            .db
+            .get_cash_out(prediction, user)
+            .await
+            .context("no cash out")?;
         if let Some(cash_out_invoice) = cash_out_invoice {
             match self.funding.check_invoice(&cash_out_invoice).await? {
                 InvoiceState::Created | InvoiceState::Failed => {
                     if *invoice != cash_out_invoice {
                         self.db
                             .set_cash_out_invoice(prediction, user, invoice.clone())
-                            .await.context("couldn't set cash out invoice")?;
+                            .await
+                            .context("couldn't set cash out invoice")?;
                         self.funding.pay_invoice(invoice, amount).await?;
                     } else {
                         self.funding.pay_invoice(&cash_out_invoice, amount).await?;

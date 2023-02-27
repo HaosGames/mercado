@@ -41,14 +41,12 @@ impl FundingSource for TestFundingSource {
             None => {
                 outgoing.insert(invoice.clone(), InvoiceState::Settled(amount));
             }
-            Some(state) => {
-                match state {
-                    InvoiceState::Created | InvoiceState::Failed => {
-                        outgoing.insert(invoice.clone(), InvoiceState::Settled(amount));
-                    }
-                    state => return Ok(state.clone())
+            Some(state) => match state {
+                InvoiceState::Created | InvoiceState::Failed => {
+                    outgoing.insert(invoice.clone(), InvoiceState::Settled(amount));
                 }
-            }
+                state => return Ok(state.clone()),
+            },
         }
         Ok(InvoiceState::Settled(amount))
     }
