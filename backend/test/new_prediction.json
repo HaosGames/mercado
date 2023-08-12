@@ -1,0 +1,8 @@
+{
+  "prediction": "This will never happen",
+  "judges": ["j1", "j2", "j3"],
+  "judge_share_ppm": 100000,
+  "judge_count": 3,
+  "trading_end": 1677536759,
+  "decision_period_sec": 10
+}

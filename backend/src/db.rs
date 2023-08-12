@@ -65,6 +65,7 @@ pub trait DB {
         prediction: &RowId,
         outcome: bool,
     ) -> Result<HashMap<UserPubKey, Sats>>;
+    async fn get_predictions(&self) -> Result<Vec<Prediction>>;
 }
 pub struct SQLite {
     connection: SqlitePool,
@@ -649,5 +650,9 @@ impl DB for SQLite {
             }
         }
         Ok(aggregated_bets)
+    }
+
+    async fn get_predictions(&self) -> Result<Vec<Prediction>> {
+        todo!()
     }
 }

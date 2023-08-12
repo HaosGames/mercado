@@ -7,8 +7,8 @@ use anyhow::Result;
 use chrono::{Duration, TimeZone, Utc};
 use std::str::FromStr;
 use std::sync::Arc;
-use env_logger::{Builder, Env};
-use log::LevelFilter;
+use env_logger::{Builder, Env, WriteStyle};
+use log::{info, LevelFilter};
 use tokio::sync::RwLock;
 
 mod api;
@@ -27,6 +27,7 @@ async fn new_prediction(
     backend: web::Data<Backend>,
 ) -> web::Json<NewPredictionResponse> {
     let backend = backend.mercado.read().await;
+    info!("Creating new prediction");
     let id = backend
         .new_prediction(
             prediction.prediction.clone(),
@@ -52,6 +53,21 @@ async fn check_bet() {}
 async fn cancel_bet() {}
 async fn cash_out() {}
 
+#[get("/predictions")]
+async fn predictions(backend: web::Data<Backend>) -> web::Json<Vec<Prediction>> {
+    //let backend = backend.mercado.read().await;
+    info!("Returning test prediction list");
+    web::Json(vec![Prediction {
+        prediction: "Test".to_string(),
+        judges: vec![],
+        judge_share_ppm: 0,
+        trading_end: 0,
+        decision_period_sec: 0,
+        judge_count: 0,
+        bets_true: 0,
+        bets_false: 0,
+    }])
+}
 async fn get_prediction() {}
 async fn get_bet() {}
 async fn get_user_bets() {}
@@ -63,7 +79,7 @@ struct Backend {
 
 #[tokio::main]
 async fn main() -> Result<()> {
-    Builder::default().filter_level(LevelFilter::Debug).init();
+    Builder::default().filter_level(LevelFilter::Debug).write_style(WriteStyle::Always).init();
     let market = web::Data::new(Backend {
         mercado: RwLock::new(Mercado::new(
             Box::new(SQLite::new().await),
@@ -74,9 +90,10 @@ async fn main() -> Result<()> {
         App::new()
             .service(greet)
             .service(new_prediction)
+            .service(predictions)
             .app_data(market.clone())
     })
-    .bind(("127.0.0.1", 8080))?
+    .bind(("127.0.0.1", 3000))?
     .run()
     .await?;
     Ok(())

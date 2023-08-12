@@ -635,6 +635,9 @@ impl Mercado {
         }
         bail!(MercadoError::WrongMarketState)
     }
+    pub async fn get_predictions(&self) -> Result<Vec<Prediction>> {
+        self.db.get_predictions().await
+    }
     pub async fn get_prediction_bets(&self, prediction: &RowId, bet: bool) -> Result<Sats> {
         let bets = self.db.get_prediction_bets(prediction, bet).await?;
         Ok(bets.values().sum())
