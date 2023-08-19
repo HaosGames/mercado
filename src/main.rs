@@ -58,7 +58,20 @@ async fn accept_nomination(
         .await
         .unwrap();
 }
-async fn refuse_nomination() {}
+async fn refuse_nomination(
+    State(state): State<Arc<RwLock<Mercado>>>,
+    Json(request): Json<AcceptNominationRequest>,
+) {
+    let mut backend = state.write().await;
+    debug!(
+        "Refusing nomination on prediction {} for user {}",
+        request.prediction, request.user
+    );
+    backend
+        .refuse_nomination(&request.prediction, &request.user)
+        .await
+        .unwrap();
+}
 async fn make_decision() {}
 async fn add_bet() {}
 async fn check_bet() {}
@@ -89,6 +102,7 @@ async fn run_test_server() -> u16 {
     let app = Router::new()
         .route("/new_prediction", post(new_prediction))
         .route("/accept_nomination", post(accept_nomination))
+        .route("/refuse_nomination", post(refuse_nomination))
         .with_state(state);
 
     let server = axum::Server::bind(&"127.0.0.1:0".parse().unwrap()).serve(app.into_make_service());
@@ -129,7 +143,7 @@ mod test {
             judge_share_ppm: 100000,
             trading_end: Utc::now() + Duration::days(3),
             decision_period_sec: Duration::days(1).num_seconds().try_into().unwrap(),
-            judge_count: 3,
+            judge_count: 2,
             bets_true: 0,
             bets_false: 0,
         };
@@ -142,8 +156,23 @@ mod test {
         assert_eq!(response.status(), StatusCode::CREATED);
         let prediction_id = response.json::<RowId>().await.unwrap();
 
-        // Accept Nomination for all 3 judges
-        for judge in [j1, j2, j3] {
+        // Refuse Nomination for 1 judge
+        let request = AcceptNominationRequest {
+            prediction: prediction_id,
+            user: j3,
+        };
+        let response = client
+            .post(
+                "http://127.0.0.1:".to_string() + port.to_string().as_str() + "/refuse_nomination",
+            )
+            .json(&request)
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::OK);
+
+        // Accept Nomination for 2 judges
+        for judge in [j1, j2] {
             let request = AcceptNominationRequest {
                 prediction: prediction_id,
                 user: judge,
