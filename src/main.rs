@@ -1,8 +1,10 @@
-use crate::api::{PublicPrediction, UserPubKey};
+#![allow(unused)]
+use crate::api::{NewPredictionRequest, RowId, UserPubKey};
 use crate::db::SQLite;
 use crate::funding_source::TestFundingSource;
 use crate::mercado::Mercado;
-use anyhow::Result;
+use anyhow::{Ok, Result};
+use api::AcceptNominationRequest;
 use axum::extract::Json;
 use axum::extract::State;
 use axum::http::StatusCode;
@@ -10,9 +12,8 @@ use axum::routing::post;
 use axum::Router;
 use axum_macros::debug_handler;
 use chrono::{Duration, TimeZone, Utc};
-use db::RowId;
 use env_logger::{Builder, WriteStyle};
-use log::{debug, info, LevelFilter};
+use log::{debug, LevelFilter};
 use std::str::FromStr;
 use std::sync::Arc;
 use tokio::sync::RwLock;
@@ -24,11 +25,11 @@ mod mercado;
 
 #[debug_handler]
 async fn new_prediction(
-    state: State<Arc<RwLock<Mercado>>>,
-    Json(prediction): Json<PublicPrediction>,
+    State(state): State<Arc<RwLock<Mercado>>>,
+    Json(prediction): Json<NewPredictionRequest>,
 ) -> (StatusCode, Json<RowId>) {
     let backend = state.read().await;
-    info!("Creating new prediction");
+    debug!("Creating new prediction");
     let id = backend
         .new_prediction(
             prediction.prediction.clone(),
@@ -42,7 +43,21 @@ async fn new_prediction(
         .unwrap();
     (StatusCode::CREATED, id.into())
 }
-async fn accept_nomination() {}
+#[debug_handler]
+async fn accept_nomination(
+    State(state): State<Arc<RwLock<Mercado>>>,
+    Json(request): Json<AcceptNominationRequest>,
+) {
+    let mut backend = state.write().await;
+    debug!(
+        "Accepting nomination on prediction {} for user {}",
+        request.prediction, request.user
+    );
+    backend
+        .accept_nomination(&request.prediction, &request.user)
+        .await
+        .unwrap();
+}
 async fn refuse_nomination() {}
 async fn make_decision() {}
 async fn add_bet() {}
@@ -73,6 +88,7 @@ async fn run_test_server() -> u16 {
     )));
     let app = Router::new()
         .route("/new_prediction", post(new_prediction))
+        .route("/accept_nomination", post(accept_nomination))
         .with_state(state);
 
     let server = axum::Server::bind(&"127.0.0.1:0".parse().unwrap()).serve(app.into_make_service());
@@ -106,7 +122,8 @@ mod test {
         let (_, j2) = generate_keypair(&mut rand::thread_rng());
         let (_, j3) = generate_keypair(&mut rand::thread_rng());
 
-        let prediction = PublicPrediction {
+        // Create a new Prediction
+        let prediction = NewPredictionRequest {
             prediction: "Test prediction".into(),
             judges: vec![j1, j2, j3],
             judge_share_ppm: 100000,
@@ -123,6 +140,25 @@ mod test {
             .await
             .unwrap();
         assert_eq!(response.status(), StatusCode::CREATED);
-        assert_eq!(response.json::<RowId>().await.unwrap(), 1);
+        let prediction_id = response.json::<RowId>().await.unwrap();
+
+        // Accept Nomination for all 3 judges
+        for judge in [j1, j2, j3] {
+            let request = AcceptNominationRequest {
+                prediction: prediction_id,
+                user: judge,
+            };
+            let response = client
+                .post(
+                    "http://127.0.0.1:".to_string()
+                        + port.to_string().as_str()
+                        + "/accept_nomination",
+                )
+                .json(&request)
+                .send()
+                .await
+                .unwrap();
+            assert_eq!(response.status(), StatusCode::OK);
+        }
     }
 }

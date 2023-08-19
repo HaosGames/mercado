@@ -1,6 +1,6 @@
-use crate::api::{Sats, UserPubKey};
+use crate::api::{RowId, Sats, UserPubKey};
 use crate::{
-    db::{RowId, DB},
+    db::DB,
     funding_source::{FundingSource, Invoice, InvoiceState},
 };
 use anyhow::{bail, Context, Result};

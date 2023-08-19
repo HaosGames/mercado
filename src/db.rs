@@ -1,4 +1,4 @@
-use crate::api::{Sats, UserPubKey};
+use crate::api::{RowId, Sats, UserPubKey};
 use crate::funding_source::Invoice;
 use crate::mercado::{Bet, BetState, JudgeState, MarketState, Prediction, RefundReason};
 use anyhow::{Context, Result};
@@ -8,7 +8,6 @@ use sqlx::{query, Executor, Pool, Row, SqlitePool};
 use std::collections::HashMap;
 use std::str::FromStr;
 
-pub type RowId = i64;
 #[async_trait]
 pub trait DB {
     async fn add_prediction(&self, prediction: Prediction) -> Result<RowId>;

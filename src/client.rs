@@ -1,5 +1,6 @@
+#![allow(unused)]
 use anyhow::Result;
-use api::PublicPrediction;
+use api::NewPredictionRequest;
 use clap::{Parser, Subcommand};
 use secp256k1::{generate_keypair, rand};
 
@@ -50,7 +51,7 @@ async fn main() -> Result<()> {
             let (_, j2) = generate_keypair(&mut rand::thread_rng());
             let (_, j3) = generate_keypair(&mut rand::thread_rng());
 
-            let prediction = PublicPrediction {
+            let prediction = NewPredictionRequest {
                 prediction: "Test prediction".into(),
                 judges: vec![j1, j2, j3],
                 judge_share_ppm: todo!(),
