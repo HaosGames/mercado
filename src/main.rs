@@ -108,6 +108,19 @@ async fn get_bet() {}
 async fn get_user_bets() {}
 async fn get_user_prediction_bets() {}
 
+#[cfg(test)]
+async fn force_decision_period(
+    State(state): State<Arc<RwLock<Mercado>>>,
+    Json(request): Json<RowId>,
+) {
+    let mut backend = state.write().await;
+    debug!(
+        "Forcing the end of the decision period for prediction {}",
+        request
+    );
+    backend.force_decision_period(&request).await.unwrap();
+}
+
 #[tokio::main]
 async fn main() -> Result<()> {
     Builder::default()
@@ -130,6 +143,8 @@ async fn run_test_server() -> u16 {
         .route("/add_bet", post(add_bet));
     #[cfg(test)]
     let app = app.route("/pay_bet", post(pay_bet));
+    #[cfg(test)]
+    let app = app.route("/force_decision_period", post(force_decision_period));
     let app = app.with_state(state);
 
     let server = axum::Server::bind(&"127.0.0.1:0".parse().unwrap()).serve(app.into_make_service());
@@ -244,5 +259,17 @@ mod test {
                 .unwrap();
             assert_eq!(response.status(), StatusCode::OK)
         }
+
+        let response = client
+            .post(
+                "http://127.0.0.1:".to_string()
+                    + port.to_string().as_str()
+                    + "/force_decision_period",
+            )
+            .json(&prediction_id)
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::OK);
     }
 }
