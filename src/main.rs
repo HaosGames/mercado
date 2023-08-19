@@ -32,11 +32,7 @@ async fn new_prediction(
     let id = backend
         .new_prediction(
             prediction.prediction.clone(),
-            prediction
-                .judges
-                .iter()
-                .map(|judge| UserPubKey::from_str(judge).unwrap())
-                .collect(),
+            prediction.judges,
             prediction.judge_count,
             prediction.judge_share_ppm,
             Utc.timestamp_opt(prediction.trading_end, 0).unwrap().into(),
@@ -112,7 +108,7 @@ mod test {
 
         let prediction = PublicPrediction {
             prediction: "Test prediction".into(),
-            judges: vec![j1.to_string(), j2.to_string(), j3.to_string()],
+            judges: vec![j1, j2, j3],
             judge_share_ppm: 100000,
             trading_end: (Utc::now() + Duration::days(3)).timestamp(),
             decision_period_sec: Duration::days(1).num_seconds().try_into().unwrap(),

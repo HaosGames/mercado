@@ -52,7 +52,7 @@ async fn main() -> Result<()> {
 
             let prediction = PublicPrediction {
                 prediction: "Test prediction".into(),
-                judges: vec![j1.to_string(), j2.to_string(), j3.to_string()],
+                judges: vec![j1, j2, j3],
                 judge_share_ppm: todo!(),
                 trading_end: todo!(),
                 decision_period_sec: todo!(),
