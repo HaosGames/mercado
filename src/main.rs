@@ -35,7 +35,7 @@ async fn new_prediction(
             prediction.judges,
             prediction.judge_count,
             prediction.judge_share_ppm,
-            Utc.timestamp_opt(prediction.trading_end, 0).unwrap().into(),
+            prediction.trading_end,
             Duration::seconds(prediction.decision_period_sec.into()),
         )
         .await
@@ -110,7 +110,7 @@ mod test {
             prediction: "Test prediction".into(),
             judges: vec![j1, j2, j3],
             judge_share_ppm: 100000,
-            trading_end: (Utc::now() + Duration::days(3)).timestamp(),
+            trading_end: Utc::now() + Duration::days(3),
             decision_period_sec: Duration::days(1).num_seconds().try_into().unwrap(),
             judge_count: 3,
             bets_true: 0,
