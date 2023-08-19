@@ -39,3 +39,9 @@ pub struct MakeDecisionRequest {
     pub judge: UserPubKey,
     pub decision: bool,
 }
+#[derive(Debug, Serialize, Deserialize)]
+pub struct CashOutUserRequest {
+    pub prediction: RowId,
+    pub user: UserPubKey,
+    pub invoice: Invoice,
+}

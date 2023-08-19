@@ -113,7 +113,21 @@ async fn pay_bet(State(state): State<Arc<RwLock<Mercado>>>, Json(request): Json<
 }
 async fn check_bet() {}
 async fn cancel_bet() {}
-async fn cash_out() {}
+async fn cash_out_user(
+    State(state): State<Arc<RwLock<Mercado>>>,
+    Json(request): Json<CashOutUserRequest>,
+) -> Json<Sats> {
+    let mut backend = state.write().await;
+    let sats = backend
+        .cash_out_user(&request.prediction, &request.user, &request.invoice)
+        .await
+        .unwrap();
+    debug!(
+        "Cashed out {} sats for user {} on prediction {}",
+        sats, request.user, request.prediction
+    );
+    Json(sats)
+}
 
 async fn predictions() {}
 async fn get_prediction() {}
@@ -154,7 +168,8 @@ async fn run_test_server() -> u16 {
         .route("/accept_nomination", post(accept_nomination))
         .route("/refuse_nomination", post(refuse_nomination))
         .route("/add_bet", post(add_bet))
-        .route("/make_decision", post(make_decision));
+        .route("/make_decision", post(make_decision))
+        .route("/cash_out_user", post(cash_out_user));
     #[cfg(test)]
     let app = app.route("/pay_bet", post(pay_bet));
     #[cfg(test)]
@@ -303,6 +318,44 @@ mod test {
                 .await
                 .unwrap();
             assert_eq!(response.status(), StatusCode::OK);
+        }
+
+        // Cash out users
+        for user in [u1, u2, u3] {
+            let request = CashOutUserRequest {
+                prediction: prediction_id,
+                user,
+                invoice: user.to_string(),
+            };
+            let response = client
+                .post(
+                    "http://127.0.0.1:".to_string() + port.to_string().as_str() + "/cash_out_user",
+                )
+                .json(&request)
+                .send()
+                .await
+                .unwrap();
+            assert_eq!(response.status(), StatusCode::OK);
+            assert_eq!(response.json::<Sats>().await.unwrap(), 89);
+        }
+
+        // Cash out judges
+        for judge in [j1, j2] {
+            let request = CashOutUserRequest {
+                prediction: prediction_id,
+                user: judge,
+                invoice: judge.to_string(),
+            };
+            let response = client
+                .post(
+                    "http://127.0.0.1:".to_string() + port.to_string().as_str() + "/cash_out_user",
+                )
+                .json(&request)
+                .send()
+                .await
+                .unwrap();
+            assert_eq!(response.status(), StatusCode::OK);
+            assert_eq!(response.json::<Sats>().await.unwrap(), 15);
         }
     }
 }
