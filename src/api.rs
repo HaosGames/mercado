@@ -33,3 +33,9 @@ pub struct PayBetRequest {
     pub invoice: Invoice,
     pub amount: Sats,
 }
+#[derive(Debug, Serialize, Deserialize)]
+pub struct MakeDecisionRequest {
+    pub prediction: RowId,
+    pub judge: UserPubKey,
+    pub decision: bool,
+}

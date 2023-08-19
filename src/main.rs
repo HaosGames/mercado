@@ -71,7 +71,20 @@ async fn refuse_nomination(
         .await
         .unwrap();
 }
-async fn make_decision() {}
+async fn make_decision(
+    State(state): State<Arc<RwLock<Mercado>>>,
+    Json(request): Json<MakeDecisionRequest>,
+) {
+    let mut backend = state.write().await;
+    debug!(
+        "Voting for {} on prediction {} for judge {}",
+        request.decision, request.prediction, request.judge
+    );
+    backend
+        .make_decision(&request.prediction, &request.judge, request.decision)
+        .await
+        .unwrap();
+}
 async fn add_bet(
     State(state): State<Arc<RwLock<Mercado>>>,
     Json(request): Json<AddBetRequest>,
@@ -140,7 +153,8 @@ async fn run_test_server() -> u16 {
         .route("/new_prediction", post(new_prediction))
         .route("/accept_nomination", post(accept_nomination))
         .route("/refuse_nomination", post(refuse_nomination))
-        .route("/add_bet", post(add_bet));
+        .route("/add_bet", post(add_bet))
+        .route("/make_decision", post(make_decision));
     #[cfg(test)]
     let app = app.route("/pay_bet", post(pay_bet));
     #[cfg(test)]
@@ -260,6 +274,7 @@ mod test {
             assert_eq!(response.status(), StatusCode::OK)
         }
 
+        // Forcing the end of the decision period
         let response = client
             .post(
                 "http://127.0.0.1:".to_string()
@@ -271,5 +286,23 @@ mod test {
             .await
             .unwrap();
         assert_eq!(response.status(), StatusCode::OK);
+
+        // Voting for outcomes for 2 judges
+        for judge in [j1, j2] {
+            let request = MakeDecisionRequest {
+                prediction: prediction_id,
+                judge,
+                decision: true,
+            };
+            let response = client
+                .post(
+                    "http://127.0.0.1:".to_string() + port.to_string().as_str() + "/make_decision",
+                )
+                .json(&request)
+                .send()
+                .await
+                .unwrap();
+            assert_eq!(response.status(), StatusCode::OK);
+        }
     }
 }

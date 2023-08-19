@@ -256,7 +256,7 @@ impl Mercado {
     pub async fn make_decision(
         &mut self,
         prediction: &RowId,
-        user: &UserPubKey,
+        judge: &UserPubKey,
         decision: bool,
     ) -> Result<()> {
         match self.db.get_prediction_state(prediction).await? {
@@ -279,7 +279,7 @@ impl Mercado {
         //TODO Check if judge made decision via Nostr
         match self
             .db
-            .set_judge_state(prediction, user, JudgeState::Resolved(decision))
+            .set_judge_state(prediction, judge, JudgeState::Resolved(decision))
             .await
         {
             Ok(_) => self.try_resolve(prediction).await,
