@@ -5,10 +5,12 @@ use crate::mercado::Mercado;
 use anyhow::Result;
 use axum::extract::Json;
 use axum::extract::State;
+use axum::http::StatusCode;
 use axum::routing::post;
 use axum::Router;
 use axum_macros::debug_handler;
 use chrono::{Duration, TimeZone, Utc};
+use db::RowId;
 use env_logger::{Builder, WriteStyle};
 use log::{debug, info, LevelFilter};
 use std::str::FromStr;
@@ -20,10 +22,11 @@ mod db;
 mod funding_source;
 mod mercado;
 
+#[debug_handler]
 async fn new_prediction(
     state: State<Arc<RwLock<Mercado>>>,
     Json(prediction): Json<PublicPrediction>,
-) {
+) -> (StatusCode, Json<RowId>) {
     let backend = state.read().await;
     info!("Creating new prediction");
     let id = backend
@@ -41,6 +44,7 @@ async fn new_prediction(
         )
         .await
         .unwrap();
+    (StatusCode::CREATED, id.into())
 }
 async fn accept_nomination() {}
 async fn refuse_nomination() {}
@@ -122,6 +126,7 @@ mod test {
             .send()
             .await
             .unwrap();
-        dbg!(response);
+        assert_eq!(response.status(), StatusCode::CREATED);
+        assert_eq!(response.json::<RowId>().await.unwrap(), 1);
     }
 }
