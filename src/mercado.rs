@@ -1,5 +1,8 @@
-use crate::db::{RowId, DB};
-use crate::funding_source::{FundingSource, Invoice, InvoiceState};
+use crate::api::{Sats, UserPubKey};
+use crate::{
+    db::{RowId, DB},
+    funding_source::{FundingSource, Invoice, InvoiceState},
+};
 use anyhow::{bail, Context, Result};
 use chrono::{DateTime, Duration, Utc};
 use rust_decimal::prelude::ToPrimitive;
@@ -10,9 +13,6 @@ use std::fmt::{Display, Formatter};
 use std::str::FromStr;
 use std::sync::Arc;
 use thiserror::Error;
-
-pub type Sats = u32;
-pub type UserPubKey = secp256k1::PublicKey;
 
 #[derive(Debug)]
 pub struct Prediction {
@@ -765,7 +765,6 @@ mod test {
             Box::new(SQLite::new().await),
             Box::new(TestFundingSource::default()),
         );
-        let prediction = "it_works".to_string();
         let prediction = market
             .new_prediction(
                 "It works".to_string(),

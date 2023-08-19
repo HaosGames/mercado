@@ -1,16 +1,16 @@
-use crate::api::{NewPredictionResponse, Prediction};
-use crate::db::{RowId, SQLite};
+use crate::api::{PublicPrediction, UserPubKey};
+use crate::db::SQLite;
 use crate::funding_source::TestFundingSource;
-use crate::mercado::{Mercado, UserPubKey};
+use crate::mercado::Mercado;
 use anyhow::Result;
 use axum::extract::Json;
 use axum::extract::State;
-use axum::routing::{get, put};
+use axum::routing::post;
 use axum::Router;
 use axum_macros::debug_handler;
 use chrono::{Duration, TimeZone, Utc};
-use env_logger::{Builder, Env, WriteStyle};
-use log::{info, LevelFilter};
+use env_logger::{Builder, WriteStyle};
+use log::{debug, info, LevelFilter};
 use std::str::FromStr;
 use std::sync::Arc;
 use tokio::sync::RwLock;
@@ -20,7 +20,10 @@ mod db;
 mod funding_source;
 mod mercado;
 
-async fn new_prediction(state: State<Arc<RwLock<Mercado>>>, Json(prediction): Json<Prediction>) {
+async fn new_prediction(
+    state: State<Arc<RwLock<Mercado>>>,
+    Json(prediction): Json<PublicPrediction>,
+) {
     let backend = state.read().await;
     info!("Creating new prediction");
     let id = backend
@@ -59,17 +62,66 @@ async fn main() -> Result<()> {
         .filter_level(LevelFilter::Debug)
         .write_style(WriteStyle::Always)
         .init();
+    run_test_server().await;
+    Ok(())
+}
+
+async fn run_test_server() -> u16 {
     let state = Arc::new(RwLock::new(Mercado::new(
         Box::new(SQLite::new().await),
         Box::new(TestFundingSource::default()),
     )));
     let app = Router::new()
-        .route("/new_prediction", put(new_prediction))
+        .route("/new_prediction", post(new_prediction))
         .with_state(state);
 
-    axum::Server::bind(&"127.0.0.1:8081".parse().unwrap())
-        .serve(app.into_make_service())
-        .await
-        .unwrap();
-    Ok(())
+    let server = axum::Server::bind(&"127.0.0.1:0".parse().unwrap()).serve(app.into_make_service());
+    let port = server.local_addr().port();
+    debug!("Listening on {}", server.local_addr());
+    tokio::spawn(async move {
+        server.await.unwrap();
+    });
+    port
+}
+
+#[cfg(test)]
+mod test {
+    use secp256k1::{generate_keypair, rand};
+
+    use super::*;
+
+    #[tokio::test]
+    async fn main() {
+        Builder::default()
+            .filter_level(LevelFilter::Debug)
+            .write_style(WriteStyle::Always)
+            .init();
+        let port = run_test_server().await;
+        let client = reqwest::Client::new();
+
+        let (_, u1) = generate_keypair(&mut rand::thread_rng());
+        let (_, u2) = generate_keypair(&mut rand::thread_rng());
+        let (_, u3) = generate_keypair(&mut rand::thread_rng());
+        let (_, j1) = generate_keypair(&mut rand::thread_rng());
+        let (_, j2) = generate_keypair(&mut rand::thread_rng());
+        let (_, j3) = generate_keypair(&mut rand::thread_rng());
+
+        let prediction = PublicPrediction {
+            prediction: "Test prediction".into(),
+            judges: vec![j1.to_string(), j2.to_string(), j3.to_string()],
+            judge_share_ppm: 100000,
+            trading_end: (Utc::now() + Duration::days(3)).timestamp(),
+            decision_period_sec: Duration::days(1).num_seconds().try_into().unwrap(),
+            judge_count: 3,
+            bets_true: 0,
+            bets_false: 0,
+        };
+        let response = client
+            .post("http://127.0.0.1:".to_string() + port.to_string().as_str() + "/new_prediction")
+            .json(&prediction)
+            .send()
+            .await
+            .unwrap();
+        dbg!(response);
+    }
 }

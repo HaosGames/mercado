@@ -1,4 +1,5 @@
-use crate::mercado::{MercadoError, Sats};
+use crate::api::Sats;
+use crate::mercado::MercadoError;
 use anyhow::{bail, Result};
 use async_trait::async_trait;
 use secp256k1::{generate_keypair, rand};

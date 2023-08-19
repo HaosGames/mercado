@@ -1,7 +1,6 @@
+use crate::api::{Sats, UserPubKey};
 use crate::funding_source::Invoice;
-use crate::mercado::{
-    Bet, BetState, JudgeState, MarketState, Prediction, RefundReason, Sats, UserPubKey,
-};
+use crate::mercado::{Bet, BetState, JudgeState, MarketState, Prediction, RefundReason};
 use anyhow::{Context, Result};
 use async_trait::async_trait;
 use chrono::{DateTime, Duration, TimeZone, Utc};

@@ -1,9 +1,10 @@
 use serde::{Deserialize, Serialize};
-use crate::db::RowId;
-use crate::mercado::Sats;
+
+pub type Sats = u32;
+pub type UserPubKey = secp256k1::PublicKey;
 
 #[derive(Debug, Deserialize, Serialize)]
-pub struct Prediction {
+pub struct PublicPrediction {
     pub prediction: String,
     pub judges: Vec<String>,
     pub judge_share_ppm: u32,
@@ -12,8 +13,4 @@ pub struct Prediction {
     pub judge_count: u32,
     pub bets_true: Sats,
     pub bets_false: Sats,
-}
-#[derive(Debug, Serialize)]
-pub struct NewPredictionResponse {
-    pub(crate) id: RowId,
 }
