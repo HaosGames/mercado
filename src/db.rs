@@ -1,5 +1,4 @@
-use crate::api::{RowId, Sats, UserPubKey};
-use crate::funding_source::Invoice;
+use crate::api::{Invoice, RowId, Sats, UserPubKey};
 use crate::mercado::{Bet, BetState, JudgeState, MarketState, Prediction, RefundReason};
 use anyhow::{Context, Result};
 use async_trait::async_trait;

@@ -1,7 +1,7 @@
-use crate::api::{RowId, Sats, UserPubKey};
+use crate::api::{Invoice, RowId, Sats, UserPubKey};
 use crate::{
     db::DB,
-    funding_source::{FundingSource, Invoice, InvoiceState},
+    funding_source::{FundingSource, InvoiceState},
 };
 use anyhow::{bail, Context, Result};
 use chrono::{DateTime, Duration, Utc};
@@ -650,7 +650,7 @@ impl Mercado {
         self.db.get_user_prediction_bets(user, prediction).await
     }
     #[cfg(test)]
-    async fn force_decision_period(&self, prediction: &RowId) -> Result<()> {
+    pub async fn force_decision_period(&self, prediction: &RowId) -> Result<()> {
         match self.db.get_prediction_state(prediction).await? {
             MarketState::Trading => {
                 self.db
@@ -661,7 +661,7 @@ impl Mercado {
         }
     }
     #[cfg(test)]
-    async fn pay_bet(&self, invoice: &Invoice, amount: Sats) -> Result<()> {
+    pub async fn pay_bet(&self, invoice: &Invoice, amount: Sats) -> Result<()> {
         self.funding.pay_invoice(invoice, amount).await?;
         self.check_bet(invoice).await?;
         Ok(())

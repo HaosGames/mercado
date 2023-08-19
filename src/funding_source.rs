@@ -1,4 +1,4 @@
-use crate::api::Sats;
+use crate::api::{Invoice, Sats};
 use crate::mercado::MercadoError;
 use anyhow::{bail, Result};
 use async_trait::async_trait;
@@ -6,7 +6,6 @@ use secp256k1::{generate_keypair, rand};
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 
-pub type Invoice = String;
 #[derive(Debug, Clone)]
 pub enum InvoiceState {
     Created,

@@ -4,6 +4,7 @@ use serde::{Deserialize, Serialize};
 pub type Sats = u32;
 pub type UserPubKey = secp256k1::PublicKey;
 pub type RowId = i64;
+pub type Invoice = String;
 
 #[derive(Debug, Deserialize, Serialize)]
 pub struct NewPredictionRequest {
@@ -20,4 +21,15 @@ pub struct NewPredictionRequest {
 pub struct AcceptNominationRequest {
     pub prediction: RowId,
     pub user: UserPubKey,
+}
+#[derive(Debug, Serialize, Deserialize)]
+pub struct AddBetRequest {
+    pub prediction: RowId,
+    pub user: UserPubKey,
+    pub bet: bool,
+}
+#[derive(Debug, Serialize, Deserialize)]
+pub struct PayBetRequest {
+    pub invoice: Invoice,
+    pub amount: Sats,
 }

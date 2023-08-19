@@ -1,10 +1,9 @@
 #![allow(unused)]
-use crate::api::{NewPredictionRequest, RowId, UserPubKey};
+use crate::api::*;
 use crate::db::SQLite;
 use crate::funding_source::TestFundingSource;
 use crate::mercado::Mercado;
 use anyhow::{Ok, Result};
-use api::AcceptNominationRequest;
 use axum::extract::Json;
 use axum::extract::State;
 use axum::http::StatusCode;
@@ -73,7 +72,32 @@ async fn refuse_nomination(
         .unwrap();
 }
 async fn make_decision() {}
-async fn add_bet() {}
+async fn add_bet(
+    State(state): State<Arc<RwLock<Mercado>>>,
+    Json(request): Json<AddBetRequest>,
+) -> (StatusCode, Invoice) {
+    let mut backend = state.write().await;
+    debug!(
+        "Adding bet on {} and prediction {} for user {}",
+        request.bet, request.prediction, request.user
+    );
+    let invoice = backend
+        .add_bet(&request.prediction, &request.user, request.bet)
+        .await
+        .unwrap();
+    (StatusCode::CREATED, invoice)
+}
+#[cfg(test)]
+async fn pay_bet(State(state): State<Arc<RwLock<Mercado>>>, Json(request): Json<PayBetRequest>) {
+    use api::PayBetRequest;
+
+    let mut backend = state.write().await;
+    debug!("Paying bet invoice with {} sats", request.amount);
+    let invoice = backend
+        .pay_bet(&request.invoice, request.amount)
+        .await
+        .unwrap();
+}
 async fn check_bet() {}
 async fn cancel_bet() {}
 async fn cash_out() {}
@@ -103,7 +127,10 @@ async fn run_test_server() -> u16 {
         .route("/new_prediction", post(new_prediction))
         .route("/accept_nomination", post(accept_nomination))
         .route("/refuse_nomination", post(refuse_nomination))
-        .with_state(state);
+        .route("/add_bet", post(add_bet));
+    #[cfg(test)]
+    let app = app.route("/pay_bet", post(pay_bet));
+    let app = app.with_state(state);
 
     let server = axum::Server::bind(&"127.0.0.1:0".parse().unwrap()).serve(app.into_make_service());
     let port = server.local_addr().port();
@@ -188,6 +215,34 @@ mod test {
                 .await
                 .unwrap();
             assert_eq!(response.status(), StatusCode::OK);
+        }
+
+        // Add bet for 3 users
+        for user in [u1, u2, u3] {
+            let request = AddBetRequest {
+                prediction: prediction_id,
+                user,
+                bet: true,
+            };
+            let response = client
+                .post("http://127.0.0.1:".to_string() + port.to_string().as_str() + "/add_bet")
+                .json(&request)
+                .send()
+                .await
+                .unwrap();
+            assert_eq!(response.status(), StatusCode::CREATED);
+            let invoice = response.text().await.unwrap();
+            let request = PayBetRequest {
+                invoice,
+                amount: 100,
+            };
+            let response = client
+                .post("http://127.0.0.1:".to_string() + port.to_string().as_str() + "/pay_bet")
+                .json(&request)
+                .send()
+                .await
+                .unwrap();
+            assert_eq!(response.status(), StatusCode::OK)
         }
     }
 }
