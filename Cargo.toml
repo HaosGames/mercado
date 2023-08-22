@@ -1,5 +1,5 @@
 [package]
-name = "mercado-backend"
+name = "mercado"
 version = "0.1.0"
 edition = "2021"
 
@@ -9,7 +9,7 @@ path = "src/main.rs"
 
 [[bin]] # Bin to run the HelloWorld gRPC client
 name = "cli"
-path = "src/client.rs"
+path = "src/cli.rs"
 
 [dependencies]
 axum = "0.6"

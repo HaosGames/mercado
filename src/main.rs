@@ -18,6 +18,7 @@ use std::sync::Arc;
 use tokio::sync::RwLock;
 
 mod api;
+mod client;
 mod db;
 mod funding_source;
 mod mercado;
@@ -189,16 +190,18 @@ async fn run_test_server() -> u16 {
 mod test {
     use secp256k1::{generate_keypair, rand};
 
+    use crate::client::Client;
+
     use super::*;
 
     #[tokio::test]
     async fn main() {
-        Builder::default()
-            .filter_level(LevelFilter::Debug)
-            .write_style(WriteStyle::Always)
-            .init();
+        // Builder::default()
+        //     .filter_level(LevelFilter::Debug)
+        //     .write_style(WriteStyle::Always)
+        //     .init();
         let port = run_test_server().await;
-        let client = reqwest::Client::new();
+        let client = Client::new("http://127.0.0.1:".to_string() + port.to_string().as_str());
 
         let (_, u1) = generate_keypair(&mut rand::thread_rng());
         let (_, u2) = generate_keypair(&mut rand::thread_rng());
@@ -218,12 +221,7 @@ mod test {
             bets_true: 0,
             bets_false: 0,
         };
-        let response = client
-            .post("http://127.0.0.1:".to_string() + port.to_string().as_str() + "/new_prediction")
-            .json(&prediction)
-            .send()
-            .await
-            .unwrap();
+        let response = client.new_prediction(prediction).await;
         assert_eq!(response.status(), StatusCode::CREATED);
         let prediction_id = response.json::<RowId>().await.unwrap();
 
@@ -232,14 +230,7 @@ mod test {
             prediction: prediction_id,
             user: j3,
         };
-        let response = client
-            .post(
-                "http://127.0.0.1:".to_string() + port.to_string().as_str() + "/refuse_nomination",
-            )
-            .json(&request)
-            .send()
-            .await
-            .unwrap();
+        let response = client.refuse_nomination(request).await;
         assert_eq!(response.status(), StatusCode::OK);
 
         // Accept Nomination for 2 judges
@@ -248,16 +239,7 @@ mod test {
                 prediction: prediction_id,
                 user: judge,
             };
-            let response = client
-                .post(
-                    "http://127.0.0.1:".to_string()
-                        + port.to_string().as_str()
-                        + "/accept_nomination",
-                )
-                .json(&request)
-                .send()
-                .await
-                .unwrap();
+            let response = client.accept_nomination(request).await;
             assert_eq!(response.status(), StatusCode::OK);
         }
 
@@ -268,38 +250,19 @@ mod test {
                 user,
                 bet: true,
             };
-            let response = client
-                .post("http://127.0.0.1:".to_string() + port.to_string().as_str() + "/add_bet")
-                .json(&request)
-                .send()
-                .await
-                .unwrap();
+            let response = client.add_bet(request).await;
             assert_eq!(response.status(), StatusCode::CREATED);
             let invoice = response.text().await.unwrap();
             let request = PayBetRequest {
                 invoice,
                 amount: 100,
             };
-            let response = client
-                .post("http://127.0.0.1:".to_string() + port.to_string().as_str() + "/pay_bet")
-                .json(&request)
-                .send()
-                .await
-                .unwrap();
+            let response = client.pay_bet(request).await;
             assert_eq!(response.status(), StatusCode::OK)
         }
 
         // Forcing the end of the decision period
-        let response = client
-            .post(
-                "http://127.0.0.1:".to_string()
-                    + port.to_string().as_str()
-                    + "/force_decision_period",
-            )
-            .json(&prediction_id)
-            .send()
-            .await
-            .unwrap();
+        let response = client.force_decision_period(prediction_id).await;
         assert_eq!(response.status(), StatusCode::OK);
 
         // Voting for outcomes for 2 judges
@@ -309,14 +272,7 @@ mod test {
                 judge,
                 decision: true,
             };
-            let response = client
-                .post(
-                    "http://127.0.0.1:".to_string() + port.to_string().as_str() + "/make_decision",
-                )
-                .json(&request)
-                .send()
-                .await
-                .unwrap();
+            let response = client.make_decision(request).await;
             assert_eq!(response.status(), StatusCode::OK);
         }
 
@@ -327,14 +283,7 @@ mod test {
                 user,
                 invoice: user.to_string(),
             };
-            let response = client
-                .post(
-                    "http://127.0.0.1:".to_string() + port.to_string().as_str() + "/cash_out_user",
-                )
-                .json(&request)
-                .send()
-                .await
-                .unwrap();
+            let response = client.cash_out_user(request).await;
             assert_eq!(response.status(), StatusCode::OK);
             assert_eq!(response.json::<Sats>().await.unwrap(), 89);
         }
@@ -346,14 +295,7 @@ mod test {
                 user: judge,
                 invoice: judge.to_string(),
             };
-            let response = client
-                .post(
-                    "http://127.0.0.1:".to_string() + port.to_string().as_str() + "/cash_out_user",
-                )
-                .json(&request)
-                .send()
-                .await
-                .unwrap();
+            let response = client.cash_out_user(request).await;
             assert_eq!(response.status(), StatusCode::OK);
             assert_eq!(response.json::<Sats>().await.unwrap(), 15);
         }

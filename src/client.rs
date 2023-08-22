@@ -1,72 +1,83 @@
-#![allow(unused)]
-use anyhow::Result;
-use api::NewPredictionRequest;
-use clap::{Parser, Subcommand};
-use secp256k1::{generate_keypair, rand};
+use reqwest::Response;
 
-mod api;
+use crate::api::*;
 
-#[derive(Parser)]
-struct Args {
-    #[command(subcommand)]
-    command: Commands,
-    api: String,
+pub struct Client {
+    url: String,
+    client: reqwest::Client,
 }
-#[derive(Subcommand)]
-enum Commands {
-    NewPrediction {
-        prediction: String,
-        judge: Vec<String>,
-        share_ppm: u32,
-        end: i64,
-        decision_period_sec: u32,
-        judge_count: u32,
-    },
-    Tests,
-}
-
-#[tokio::main]
-async fn main() -> Result<()> {
-    let cli = Args::parse();
-    let client = reqwest::Client::new();
-
-    // You can check for the existence of subcommands, and if found use their
-    // matches just as you would the top level cmd
-    match &cli.command {
-        Commands::NewPrediction {
-            prediction,
-            judge,
-            share_ppm,
-            end,
-            decision_period_sec,
-            judge_count,
-        } => {
-            println!("'myapp add' was used, name")
-        }
-        Commands::Tests => {
-            let (_, u1) = generate_keypair(&mut rand::thread_rng());
-            let (_, u2) = generate_keypair(&mut rand::thread_rng());
-            let (_, u3) = generate_keypair(&mut rand::thread_rng());
-            let (_, j1) = generate_keypair(&mut rand::thread_rng());
-            let (_, j2) = generate_keypair(&mut rand::thread_rng());
-            let (_, j3) = generate_keypair(&mut rand::thread_rng());
-
-            let prediction = NewPredictionRequest {
-                prediction: "Test prediction".into(),
-                judges: vec![j1, j2, j3],
-                judge_share_ppm: todo!(),
-                trading_end: todo!(),
-                decision_period_sec: todo!(),
-                judge_count: todo!(),
-                bets_true: todo!(),
-                bets_false: todo!(),
-            };
-            let response = client
-                .post("http://127.0.0.1:8081/new_prediction")
-                .json(&prediction)
-                .send()
-                .await?;
-        }
+impl Client {
+    pub fn new(url: String) -> Self {
+        let client = reqwest::Client::new();
+        Self { url, client }
     }
-    Ok(())
+    pub async fn new_prediction(&self, request: NewPredictionRequest) -> Response {
+        self.client
+            .post(self.url.clone() + "/new_prediction")
+            .json(&request)
+            .send()
+            .await
+            .unwrap()
+    }
+    pub async fn accept_nomination(&self, request: AcceptNominationRequest) -> Response {
+        self.client
+            .post(self.url.clone() + "/accept_nomination")
+            .json(&request)
+            .send()
+            .await
+            .unwrap()
+    }
+    pub async fn refuse_nomination(&self, request: AcceptNominationRequest) -> Response {
+        self.client
+            .post(self.url.clone() + "/refuse_nomination")
+            .json(&request)
+            .send()
+            .await
+            .unwrap()
+    }
+    pub async fn make_decision(&self, request: MakeDecisionRequest) -> Response {
+        self.client
+            .post(self.url.clone() + "/make_decision")
+            .json(&request)
+            .send()
+            .await
+            .unwrap()
+    }
+    pub async fn add_bet(&self, request: AddBetRequest) -> Response {
+        self.client
+            .post(self.url.clone() + "/add_bet")
+            .json(&request)
+            .send()
+            .await
+            .unwrap()
+    }
+    #[cfg(test)]
+    pub async fn pay_bet(&self, request: PayBetRequest) -> Response {
+        self.client
+            .post(self.url.clone() + "/pay_bet")
+            .json(&request)
+            .send()
+            .await
+            .unwrap()
+    }
+    pub async fn check_bet(&self) {}
+    pub async fn cancel_bet(&self) {}
+    pub async fn cash_out_user(&self, request: CashOutUserRequest) -> Response {
+        self.client
+            .post(self.url.clone() + "/cash_out_user")
+            .json(&request)
+            .send()
+            .await
+            .unwrap()
+    }
+    #[cfg(test)]
+    pub async fn force_decision_period(&self, prediction: RowId) -> Response {
+        self.client
+            .post(self.url.clone() + "/force_decision_period")
+            .json(&prediction)
+            .send()
+            .await
+            .unwrap()
+    }
 }
+

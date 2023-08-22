@@ -28,6 +28,7 @@ pub struct AddBetRequest {
     pub user: UserPubKey,
     pub bet: bool,
 }
+#[cfg(test)]
 #[derive(Debug, Serialize, Deserialize)]
 pub struct PayBetRequest {
     pub invoice: Invoice,
