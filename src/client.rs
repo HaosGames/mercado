@@ -1,3 +1,4 @@
+use anyhow::Result;
 use reqwest::Response;
 
 use crate::api::*;
@@ -78,6 +79,14 @@ impl Client {
             .send()
             .await
             .unwrap()
+    }
+    pub async fn get_predictions(&self) -> Result<Vec<PredictionListItemResponse>> {
+        let response = self
+            .client
+            .get(self.url.clone() + "/get_predictions")
+            .send()
+            .await?;
+        Ok(response.json::<Vec<PredictionListItemResponse>>().await?)
     }
 }
 

@@ -7,7 +7,7 @@ use anyhow::{Ok, Result};
 use axum::extract::Json;
 use axum::extract::State;
 use axum::http::StatusCode;
-use axum::routing::post;
+use axum::routing::{get, post};
 use axum::Router;
 use axum_macros::debug_handler;
 use chrono::{Duration, TimeZone, Utc};
@@ -130,7 +130,13 @@ async fn cash_out_user(
     Json(sats)
 }
 
-async fn predictions() {}
+async fn get_predictions(
+    State(state): State<Arc<RwLock<Mercado>>>,
+) -> Json<Vec<PredictionListItemResponse>> {
+    let mut backend = state.write().await;
+    let predictions = backend.get_predictions().await.unwrap();
+    Json(predictions.into_values().collect())
+}
 async fn get_prediction() {}
 async fn get_bet() {}
 async fn get_user_bets() {}
@@ -170,7 +176,8 @@ async fn run_test_server() -> u16 {
         .route("/refuse_nomination", post(refuse_nomination))
         .route("/add_bet", post(add_bet))
         .route("/make_decision", post(make_decision))
-        .route("/cash_out_user", post(cash_out_user));
+        .route("/cash_out_user", post(cash_out_user))
+        .route("/get_predictions", get(get_predictions));
     #[cfg(test)]
     let app = app.route("/pay_bet", post(pay_bet));
     #[cfg(test)]
@@ -299,5 +306,10 @@ mod test {
             assert_eq!(response.status(), StatusCode::OK);
             assert_eq!(response.json::<Sats>().await.unwrap(), 15);
         }
+
+        let predictions = client.get_predictions().await.unwrap();
+        let prediction = predictions.first().unwrap();
+        assert_eq!(prediction.bets_true, 300);
+        assert_eq!(prediction.name, "Test prediction".to_string());
     }
 }

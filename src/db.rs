@@ -1,4 +1,4 @@
-use crate::api::{Invoice, RowId, Sats, UserPubKey};
+use crate::api::{Invoice, PredictionListItemResponse, RowId, Sats, UserPubKey};
 use crate::mercado::{Bet, BetState, JudgeState, MarketState, Prediction, RefundReason};
 use anyhow::{Context, Result};
 use async_trait::async_trait;
@@ -62,7 +62,7 @@ pub trait DB {
         prediction: &RowId,
         outcome: bool,
     ) -> Result<HashMap<UserPubKey, Sats>>;
-    async fn get_predictions(&self) -> Result<Vec<Prediction>>;
+    async fn get_predictions(&self) -> Result<HashMap<RowId, PredictionListItemResponse>>;
 }
 pub struct SQLite {
     connection: SqlitePool,
@@ -649,7 +649,47 @@ impl DB for SQLite {
         Ok(aggregated_bets)
     }
 
-    async fn get_predictions(&self) -> Result<Vec<Prediction>> {
-        todo!()
+    async fn get_predictions(&self) -> Result<HashMap<RowId, PredictionListItemResponse>> {
+        let stmt = query(
+            "SELECT predictions.rowid, predictions.prediction, judge_share_ppm, trading_end, \
+            decision_period, predictions.state, bet, sum(amount) AS amount \
+            FROM predictions \
+            LEFT JOIN bets ON predictions.rowid = bets.prediction \
+            GROUP BY bet, predictions.prediction",
+        );
+        let rows = self.connection.fetch_all(stmt).await?;
+
+        let mut predictions: HashMap<RowId, PredictionListItemResponse> = HashMap::new();
+        for row in rows {
+            let id = row.get("rowid");
+            let name = row.get("prediction");
+            let judge_share_ppm = row.get("judge_share_ppm");
+            let decision_period_sec = row.get("decision_period");
+            let trading_end = Utc.timestamp_opt(row.get("trading_end"), 0).unwrap();
+            let bet = row.get("bet");
+            let amount = row.get("amount");
+
+            if let Some(mut prediction) = predictions.get_mut(&id) {
+                if bet {
+                    prediction.bets_true = amount;
+                } else {
+                    prediction.bets_false = amount;
+                }
+            } else {
+                predictions.insert(
+                    id,
+                    PredictionListItemResponse {
+                        id,
+                        name,
+                        judge_share_ppm,
+                        trading_end,
+                        decision_period_sec,
+                        bets_true: if bet { amount } else { 0 },
+                        bets_false: if bet { 0 } else { amount },
+                    },
+                );
+            }
+        }
+        Ok(predictions)
     }
 }

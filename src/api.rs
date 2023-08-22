@@ -46,3 +46,13 @@ pub struct CashOutUserRequest {
     pub user: UserPubKey,
     pub invoice: Invoice,
 }
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct PredictionListItemResponse {
+    pub id: RowId,
+    pub name: String,
+    pub judge_share_ppm: u32,
+    pub trading_end: DateTime<Utc>,
+    pub decision_period_sec: u32,
+    pub bets_true: Sats,
+    pub bets_false: Sats,
+}

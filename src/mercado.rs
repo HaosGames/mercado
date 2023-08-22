@@ -1,4 +1,4 @@
-use crate::api::{Invoice, RowId, Sats, UserPubKey};
+use crate::api::{Invoice, PredictionListItemResponse, RowId, Sats, UserPubKey};
 use crate::{
     db::DB,
     funding_source::{FundingSource, InvoiceState},
@@ -635,7 +635,7 @@ impl Mercado {
         }
         bail!(MercadoError::WrongMarketState)
     }
-    pub async fn get_predictions(&self) -> Result<Vec<Prediction>> {
+    pub async fn get_predictions(&self) -> Result<HashMap<RowId, PredictionListItemResponse>> {
         self.db.get_predictions().await
     }
     pub async fn get_prediction_bets(&self, prediction: &RowId, bet: bool) -> Result<Sats> {
