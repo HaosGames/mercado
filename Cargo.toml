@@ -12,23 +12,30 @@ name = "cli"
 path = "src/cli.rs"
 
 [dependencies]
-axum = "0.6"
-async-trait = "0.1"
-tokio = { version = "1", features = [ "full" ] }
-rust_decimal = "1"
-rust_decimal_macros = "1"
-env_logger = "0.10.0"
-futures-util = { version = "0.3", default-features = false, features = ["std"] }
-json = "0.12"
-log = "0.4"
-serde = { version = "1.0", features = ["derive"] }
-serde_json = "1.0"
-chrono = { version = "0.4", features = ["serde"]}
-clap = { version = "4", features = ["derive"] }
-thiserror = "1"
-secp256k1 = { version = "0.27" , features = ["rand-std", "bitcoin-hashes", "global-context", "serde"]}
-sqlx = { version = "0.7", features = [ "runtime-tokio-rustls", "sqlite" ] }
-anyhow = { version = "1.0", features = [] }
-tower = "0.4"
-axum-macros = "0.3"
-reqwest = { version = "0.11", features = ["json"]}
+axum = { version = "0.6", optional = true}
+async-trait = { version = "0.1", optional = true}
+tokio = { version = "1", features = [ "full" ] , optional = true}
+rust_decimal = {version = "1", optional = true}
+rust_decimal_macros = {version = "1", optional = true}
+env_logger = {version = "0.10.0", optional = true}
+futures-util = { version = "0.3", default-features = false, features = ["std"] , optional = true}
+json = {version = "0.12", optional = true}
+log = {version = "0.4", optional = true}
+serde = { version = "1.0", features = ["derive"] , optional = true}
+serde_json = {version = "1.0", optional = true}
+chrono = { version = "0.4", features = ["serde"], optional = true}
+clap = { version = "4", features = ["derive"], optional = true }
+thiserror = {version = "1", optional = true}
+secp256k1 = { version = "0.27" , features = ["rand-std", "bitcoin-hashes", "global-context", "serde"], optional = true}
+sqlx = { version = "0.7", features = [ "runtime-tokio-rustls", "sqlite" ], optional = true }
+anyhow = { version = "1.0", features = [], optional = true }
+tower = {version = "0.4", optional = true}
+axum-macros = {version = "0.3", optional = true}
+reqwest = { version = "0.11", features = ["json"], optional = true}
+
+[features]
+default = ["dep:axum", "dep:async-trait", "dep:tokio", "dep:rust_decimal", "dep:rust_decimal_macros",
+"dep:env_logger", "dep:futures-util", "dep:json", "dep:log", "dep:serde", "dep:serde_json", 
+"dep:chrono", "dep:clap", "dep:thiserror", "dep:secp256k1", "dep:sqlx", "dep:anyhow", "dep:tower", "dep:axum-macros", 
+"dep:reqwest"]
+client = ["dep:reqwest", "dep:chrono", "dep:serde", "dep:secp256k1"]
