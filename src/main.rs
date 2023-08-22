@@ -16,6 +16,7 @@ use log::{debug, LevelFilter};
 use std::str::FromStr;
 use std::sync::Arc;
 use tokio::sync::RwLock;
+use tokio::task::JoinHandle;
 
 mod api;
 mod client;
@@ -161,11 +162,12 @@ async fn main() -> Result<()> {
         .filter_level(LevelFilter::Debug)
         .write_style(WriteStyle::Always)
         .init();
-    run_test_server().await;
+    let (_port, handle) = run_test_server(Some(8081)).await;
+    handle.await;
     Ok(())
 }
 
-async fn run_test_server() -> u16 {
+async fn run_test_server(port: Option<u16>) -> (u16, JoinHandle<()>) {
     let state = Arc::new(RwLock::new(Mercado::new(
         Box::new(SQLite::new().await),
         Box::new(TestFundingSource::default()),
@@ -184,13 +186,14 @@ async fn run_test_server() -> u16 {
     let app = app.route("/force_decision_period", post(force_decision_period));
     let app = app.with_state(state);
 
-    let server = axum::Server::bind(&"127.0.0.1:0".parse().unwrap()).serve(app.into_make_service());
+    let addr = "127.0.0.1:".to_string() + port.unwrap_or(0).to_string().as_str();
+    let server = axum::Server::bind(&addr.parse().unwrap()).serve(app.into_make_service());
     let port = server.local_addr().port();
     debug!("Listening on {}", server.local_addr());
-    tokio::spawn(async move {
+    let handle = tokio::spawn(async move {
         server.await.unwrap();
     });
-    port
+    (port, handle)
 }
 
 #[cfg(test)]
@@ -207,7 +210,7 @@ mod test {
         //     .filter_level(LevelFilter::Debug)
         //     .write_style(WriteStyle::Always)
         //     .init();
-        let port = run_test_server().await;
+        let (port, _) = run_test_server(None).await;
         let client = Client::new("http://127.0.0.1:".to_string() + port.to_string().as_str());
 
         let (_, u1) = generate_keypair(&mut rand::thread_rng());
