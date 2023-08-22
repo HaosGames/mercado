@@ -3,7 +3,7 @@ use crate::{
     db::DB,
     funding_source::{FundingSource, InvoiceState},
 };
-use anyhow::{bail, Context, Result};
+use anyhow::{anyhow, bail, Context, Result};
 use chrono::{DateTime, Duration, Utc};
 use rust_decimal::prelude::ToPrimitive;
 use rust_decimal::Decimal;
@@ -196,16 +196,31 @@ impl Mercado {
         decision_period: Duration,
     ) -> Result<RowId> {
         if judges.len() < judge_count as usize || judge_count == 0 {
-            return Err(MarketCreationError::NotEnoughJudges.into());
+            return Err(anyhow!(
+                "There were {} nominated judges but there need to be at least {}",
+                judges.len(),
+                judge_count
+            ));
         }
         if judge_share_ppm > 1000000 {
-            return Err(MarketCreationError::JudgeShareNotInRange.into());
+            return Err(anyhow!(
+                "judge_share_ppm was {} but needs to be lower than 100.000",
+                judge_share_ppm
+            ));
         }
         if trading_end < Utc::now() + Duration::days(2) {
-            return Err(MarketCreationError::TradingEndToEarly.into());
+            return Err(anyhow!(
+                "Trading end was at {} but needs to be after {}",
+                trading_end,
+                Utc::now() + Duration::days(2)
+            ));
         }
         if decision_period < Duration::days(1) {
-            return Err(MarketCreationError::DecisionPeriodToShort.into());
+            return Err(anyhow!(
+                "Decision period was {} but needs to be at least {}",
+                decision_period.num_seconds(),
+                Duration::days(1).num_seconds()
+            ));
         }
         let id = self
             .db

@@ -14,8 +14,6 @@ pub struct NewPredictionRequest {
     pub trading_end: DateTime<Utc>,
     pub decision_period_sec: u32,
     pub judge_count: u32,
-    pub bets_true: Sats,
-    pub bets_false: Sats,
 }
 #[derive(Debug, Serialize, Deserialize)]
 pub struct AcceptNominationRequest {

@@ -3,7 +3,7 @@ use crate::api::*;
 use crate::db::SQLite;
 use crate::funding_source::TestFundingSource;
 use crate::mercado::Mercado;
-use anyhow::{Ok, Result};
+use anyhow::Result;
 use axum::extract::Json;
 use axum::extract::State;
 use axum::http::StatusCode;
@@ -28,9 +28,8 @@ mod mercado;
 async fn new_prediction(
     State(state): State<Arc<RwLock<Mercado>>>,
     Json(prediction): Json<NewPredictionRequest>,
-) -> (StatusCode, Json<RowId>) {
+) -> Result<(StatusCode, Json<RowId>), (StatusCode, String)> {
     let backend = state.read().await;
-    debug!("Creating new prediction");
     let id = backend
         .new_prediction(
             prediction.prediction.clone(),
@@ -41,8 +40,12 @@ async fn new_prediction(
             Duration::seconds(prediction.decision_period_sec.into()),
         )
         .await
-        .unwrap();
-    (StatusCode::CREATED, id.into())
+        .map_err(|e| {
+            debug!("Error when creating prediction: {:#}", e);
+            (StatusCode::BAD_REQUEST, format!("{:?}", e))
+        })?;
+    debug!("Created Prediction {}: {}", id, prediction.prediction);
+    Ok((StatusCode::CREATED, id.into()))
 }
 #[debug_handler]
 async fn accept_nomination(
@@ -228,8 +231,6 @@ mod test {
             trading_end: Utc::now() + Duration::days(3),
             decision_period_sec: Duration::days(1).num_seconds().try_into().unwrap(),
             judge_count: 2,
-            bets_true: 0,
-            bets_false: 0,
         };
         let response = client.new_prediction(prediction).await;
         assert_eq!(response.status(), StatusCode::CREATED);
