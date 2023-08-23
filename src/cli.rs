@@ -28,6 +28,14 @@ enum Commands {
         share_ppm: u32,
     },
     GetPredictions,
+    AddBet {
+        #[arg(short, long)]
+        bet: bool,
+        #[arg(short, long)]
+        amount: u32,
+        #[arg(short, long)]
+        prediction: u32,
+    },
 }
 
 #[tokio::main]
@@ -62,6 +70,20 @@ async fn main() -> Result<()> {
             let client = Client::new(cli.url);
             let response = client.get_predictions().await?;
             println!("{:#?}", response);
+        }
+        Commands::AddBet {
+            bet,
+            amount,
+            prediction,
+        } => {
+            let client = Client::new(cli.url);
+            let request = AddBetRequest {
+                bet,
+                prediction: prediction.into(),
+                user: generate_keypair(&mut rand::thread_rng()).1,
+            };
+            let invoice = client.add_bet(request).await?;
+            println!("Invoice: {}", invoice);
         }
     }
     Ok(())

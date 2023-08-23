@@ -651,7 +651,7 @@ impl DB for SQLite {
 
     async fn get_predictions(&self) -> Result<HashMap<RowId, PredictionListItemResponse>> {
         let stmt = query(
-            "SELECT predictions.rowid, predictions.prediction, judge_share_ppm, trading_end, \
+            "SELECT predictions.rowid, predictions.prediction, judge_share_ppm, judge_count, trading_end, \
             decision_period, predictions.state, bet, sum(amount) AS amount \
             FROM predictions \
             LEFT JOIN bets ON predictions.rowid = bets.prediction \
@@ -664,6 +664,7 @@ impl DB for SQLite {
             let id = row.get("rowid");
             let name = row.get("prediction");
             let judge_share_ppm = row.get("judge_share_ppm");
+            let judge_count = row.get("judge_count");
             let decision_period_sec = row.get("decision_period");
             let trading_end = Utc.timestamp_opt(row.get("trading_end"), 0).unwrap();
             let bet = row.get("bet");
@@ -682,6 +683,7 @@ impl DB for SQLite {
                         id,
                         name,
                         judge_share_ppm,
+                        judge_count,
                         trading_end,
                         decision_period_sec,
                         bets_true: if bet { amount } else { 0 },

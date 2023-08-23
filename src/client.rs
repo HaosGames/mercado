@@ -44,13 +44,17 @@ impl Client {
             .await
             .unwrap()
     }
-    pub async fn add_bet(&self, request: AddBetRequest) -> Response {
-        self.client
+    pub async fn add_bet(&self, request: AddBetRequest) -> Result<Invoice> {
+        let response = self
+            .client
             .post(self.url.clone() + "/add_bet")
             .json(&request)
             .send()
-            .await
-            .unwrap()
+            .await?;
+        if response.status() != StatusCode::CREATED {
+            bail!("{}: {}", response.status(), response.text().await?)
+        }
+        Ok(response.text().await?)
     }
     #[cfg(test)]
     pub async fn pay_bet(&self, request: PayBetRequest) -> Response {
@@ -86,6 +90,9 @@ impl Client {
             .get(self.url.clone() + "/get_predictions")
             .send()
             .await?;
+        if response.status() != StatusCode::OK {
+            bail!("{}: {}", response.status(), response.text().await?)
+        }
         Ok(response.json::<Vec<PredictionListItemResponse>>().await?)
     }
     pub async fn get_user_prediction(

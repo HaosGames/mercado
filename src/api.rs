@@ -50,6 +50,7 @@ pub struct PredictionListItemResponse {
     pub id: RowId,
     pub name: String,
     pub judge_share_ppm: u32,
+    pub judge_count: u32,
     pub trading_end: DateTime<Utc>,
     pub decision_period_sec: u32,
     pub bets_true: Sats,
@@ -65,6 +66,7 @@ pub struct UserPredictionOverviewResponse {
     pub id: RowId,
     pub name: String,
     pub judge_share_ppm: u32,
+    pub judge_count: u32,
     pub trading_end: DateTime<Utc>,
     pub decision_period_sec: u32,
     pub bets_true: Sats,
@@ -81,13 +83,13 @@ pub fn map_any_err(e: anyhow::Error) -> String {
 }
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Bet {
-    pub(crate) user: UserPubKey,
-    pub(crate) prediction: RowId,
-    pub(crate) bet: bool,
-    pub(crate) amount: Option<Sats>,
-    pub(crate) state: BetState,
-    pub(crate) fund_invoice: Invoice,
-    pub(crate) refund_invoice: Option<Invoice>,
+    pub user: UserPubKey,
+    pub prediction: RowId,
+    pub bet: bool,
+    pub amount: Option<Sats>,
+    pub state: BetState,
+    pub fund_invoice: Invoice,
+    pub refund_invoice: Option<Invoice>,
 }
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum BetState {

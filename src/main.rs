@@ -133,10 +133,13 @@ async fn cash_out_user(
 
 async fn get_predictions(
     State(state): State<Arc<RwLock<Mercado>>>,
-) -> Json<Vec<PredictionListItemResponse>> {
+) -> Result<Json<Vec<PredictionListItemResponse>>, (StatusCode, String)> {
     let mut backend = state.write().await;
-    let predictions = backend.get_predictions().await.unwrap();
-    Json(predictions.into_values().collect())
+    let predictions = backend
+        .get_predictions()
+        .await
+        .map_err(map_any_err_and_code)?;
+    Ok(Json(predictions.into_values().collect()))
 }
 async fn get_user_prediction(
     State(state): State<Arc<RwLock<Mercado>>>,
@@ -164,6 +167,7 @@ async fn get_user_prediction(
         bets_true: prediction.bets_true,
         bets_false: prediction.bets_false,
         user_bets,
+        judge_count: prediction.judge_count,
     };
     Ok(Json(result))
 }
@@ -297,9 +301,7 @@ mod test {
                 user,
                 bet: true,
             };
-            let response = client.add_bet(request).await;
-            assert_eq!(response.status(), StatusCode::CREATED);
-            let invoice = response.text().await.unwrap();
+            let invoice = client.add_bet(request).await.unwrap();
             let request = PayBetRequest {
                 invoice,
                 amount: 100,
