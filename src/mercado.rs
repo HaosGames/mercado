@@ -664,7 +664,6 @@ impl Mercado {
     ) -> Result<Vec<Bet>> {
         self.db.get_user_prediction_bets(user, prediction).await
     }
-    #[cfg(test)]
     pub async fn force_decision_period(&self, prediction: &RowId) -> Result<()> {
         match self.db.get_prediction_state(prediction).await? {
             MarketState::Trading => {
@@ -675,7 +674,6 @@ impl Mercado {
             _ => bail!(MercadoError::WrongMarketState),
         }
     }
-    #[cfg(test)]
     pub async fn pay_bet(&self, invoice: &Invoice, amount: Sats) -> Result<()> {
         self.funding.pay_invoice(invoice, amount).await?;
         self.check_bet(invoice).await?;

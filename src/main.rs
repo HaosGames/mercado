@@ -11,6 +11,7 @@ use axum::routing::{get, post};
 use axum::Router;
 use axum_macros::debug_handler;
 use chrono::{Duration, TimeZone, Utc};
+use clap::Parser;
 use env_logger::{Builder, WriteStyle};
 use log::{debug, LevelFilter};
 use std::str::FromStr;
@@ -105,7 +106,6 @@ async fn add_bet(
         .unwrap();
     (StatusCode::CREATED, invoice)
 }
-#[cfg(test)]
 async fn pay_bet(State(state): State<Arc<RwLock<Mercado>>>, Json(request): Json<PayBetRequest>) {
     use api::PayBetRequest;
 
@@ -146,7 +146,6 @@ async fn get_bet() {}
 async fn get_user_bets() {}
 async fn get_user_prediction_bets() {}
 
-#[cfg(test)]
 async fn force_decision_period(
     State(state): State<Arc<RwLock<Mercado>>>,
     Json(request): Json<RowId>,
@@ -159,18 +158,27 @@ async fn force_decision_period(
     backend.force_decision_period(&request).await.unwrap();
 }
 
+#[derive(Parser)]
+struct Args {
+    #[arg(short, long, default_value_t = true)]
+    admin: bool,
+    #[arg(short, long, default_value_t = 8081)]
+    port: u16,
+}
+
 #[tokio::main]
 async fn main() -> Result<()> {
     Builder::default()
         .filter_level(LevelFilter::Debug)
         .write_style(WriteStyle::Always)
         .init();
-    let (_port, handle) = run_test_server(Some(8081)).await;
+    let cli = Args::parse();
+    let (_port, handle) = run_server(Some(cli.port), cli.admin).await;
     handle.await;
     Ok(())
 }
 
-async fn run_test_server(port: Option<u16>) -> (u16, JoinHandle<()>) {
+async fn run_server(port: Option<u16>, admin: bool) -> (u16, JoinHandle<()>) {
     let state = Arc::new(RwLock::new(Mercado::new(
         Box::new(SQLite::new().await),
         Box::new(TestFundingSource::default()),
@@ -183,10 +191,12 @@ async fn run_test_server(port: Option<u16>) -> (u16, JoinHandle<()>) {
         .route("/make_decision", post(make_decision))
         .route("/cash_out_user", post(cash_out_user))
         .route("/get_predictions", get(get_predictions));
-    #[cfg(test)]
-    let app = app.route("/pay_bet", post(pay_bet));
-    #[cfg(test)]
-    let app = app.route("/force_decision_period", post(force_decision_period));
+    let app = if admin {
+        app.route("/pay_bet", post(pay_bet))
+            .route("/force_decision_period", post(force_decision_period))
+    } else {
+        app
+    };
     let app = app.with_state(state);
 
     let addr = "127.0.0.1:".to_string() + port.unwrap_or(0).to_string().as_str();
@@ -213,7 +223,7 @@ mod test {
         //     .filter_level(LevelFilter::Debug)
         //     .write_style(WriteStyle::Always)
         //     .init();
-        let (port, _) = run_test_server(None).await;
+        let (port, _) = run_server(None, true).await;
         let client = Client::new("http://127.0.0.1:".to_string() + port.to_string().as_str());
 
         let (_, u1) = generate_keypair(&mut rand::thread_rng());
