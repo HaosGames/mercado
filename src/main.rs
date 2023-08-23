@@ -41,10 +41,7 @@ async fn new_prediction(
             Duration::seconds(prediction.decision_period_sec.into()),
         )
         .await
-        .map_err(|e| {
-            debug!("Error when creating prediction: {:#}", e);
-            (StatusCode::BAD_REQUEST, format!("{:?}", e))
-        })?;
+        .map_err(map_any_err_and_code)?;
     debug!("Created Prediction {}: {}", id, prediction.prediction);
     Ok((StatusCode::CREATED, id.into()))
 }
@@ -141,7 +138,35 @@ async fn get_predictions(
     let predictions = backend.get_predictions().await.unwrap();
     Json(predictions.into_values().collect())
 }
-async fn get_prediction() {}
+async fn get_user_prediction(
+    State(state): State<Arc<RwLock<Mercado>>>,
+    Json(request): Json<UserPredictionOverviewRequest>,
+) -> Result<Json<UserPredictionOverviewResponse>, (StatusCode, String)> {
+    let mut backend = state.write().await;
+    let prediction = backend
+        .get_predictions()
+        .await
+        .map_err(map_any_err_and_code)?;
+    let prediction = prediction.get(&request.prediction).ok_or((
+        StatusCode::NOT_FOUND,
+        format!("Couldn't find prediction {}", request.prediction),
+    ))?;
+    let user_bets = backend
+        .get_user_prediction_bets(&request.prediction, &request.user)
+        .await
+        .map_err(map_any_err_and_code)?;
+    let result = UserPredictionOverviewResponse {
+        id: prediction.id,
+        name: prediction.name.clone(),
+        judge_share_ppm: prediction.judge_share_ppm,
+        trading_end: prediction.trading_end,
+        decision_period_sec: prediction.decision_period_sec,
+        bets_true: prediction.bets_true,
+        bets_false: prediction.bets_false,
+        user_bets,
+    };
+    Ok(Json(result))
+}
 async fn get_bet() {}
 async fn get_user_bets() {}
 async fn get_user_prediction_bets() {}
@@ -190,7 +215,8 @@ async fn run_server(port: Option<u16>, admin: bool) -> (u16, JoinHandle<()>) {
         .route("/add_bet", post(add_bet))
         .route("/make_decision", post(make_decision))
         .route("/cash_out_user", post(cash_out_user))
-        .route("/get_predictions", get(get_predictions));
+        .route("/get_predictions", get(get_predictions))
+        .route("/get_user_prediction", post(get_user_prediction));
     let app = if admin {
         app.route("/pay_bet", post(pay_bet))
             .route("/force_decision_period", post(force_decision_period))

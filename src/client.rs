@@ -88,5 +88,18 @@ impl Client {
             .await?;
         Ok(response.json::<Vec<PredictionListItemResponse>>().await?)
     }
+    pub async fn get_user_prediction(
+        &self,
+        prediction: RowId,
+        user: UserPubKey,
+    ) -> Result<UserPredictionOverviewResponse> {
+        let request = UserPredictionOverviewRequest { prediction, user };
+        let response = self
+            .client
+            .post(self.url.clone() + "/get_user_prediction")
+            .json(&request)
+            .send()
+            .await?;
+        Ok(response.json::<UserPredictionOverviewResponse>().await?)
+    }
 }
-

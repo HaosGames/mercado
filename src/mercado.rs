@@ -1,4 +1,4 @@
-use crate::api::{Invoice, PredictionListItemResponse, RowId, Sats, UserPubKey};
+use crate::api::{Bet, BetState, Invoice, PredictionListItemResponse, RowId, Sats, UserPubKey};
 use crate::{
     db::DB,
     funding_source::{FundingSource, InvoiceState},
@@ -135,23 +135,6 @@ pub struct Judge {
     user: UserPubKey,
     prediction: RowId,
     state: JudgeState,
-}
-#[derive(Debug, Clone)]
-pub struct Bet {
-    pub(crate) user: UserPubKey,
-    pub(crate) prediction: RowId,
-    pub(crate) bet: bool,
-    pub(crate) amount: Option<Sats>,
-    pub(crate) state: BetState,
-    pub(crate) fund_invoice: Invoice,
-    pub(crate) refund_invoice: Option<Invoice>,
-}
-#[derive(Debug, Clone)]
-pub enum BetState {
-    FundInit,
-    Funded,
-    RefundInit,
-    Refunded,
 }
 impl FromStr for BetState {
     type Err = MercadoError;
