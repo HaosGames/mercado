@@ -1,5 +1,5 @@
-use anyhow::Result;
-use reqwest::Response;
+use anyhow::{bail, Result};
+use reqwest::{Response, StatusCode};
 
 use crate::api::*;
 
@@ -100,6 +100,9 @@ impl Client {
             .json(&request)
             .send()
             .await?;
+        if response.status() != StatusCode::OK {
+            bail!("{}: {}", response.status(), response.text().await?)
+        }
         Ok(response.json::<UserPredictionOverviewResponse>().await?)
     }
 }
