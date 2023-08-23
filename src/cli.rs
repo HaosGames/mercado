@@ -1,6 +1,6 @@
 #![allow(unused)]
 use anyhow::Result;
-use api::NewPredictionRequest;
+use api::*;
 use chrono::Utc;
 use clap::{Parser, Subcommand};
 use secp256k1::{generate_keypair, rand};
@@ -27,6 +27,7 @@ enum Commands {
         #[arg(short, long)]
         share_ppm: u32,
     },
+    GetPredictions,
 }
 
 #[tokio::main]
@@ -56,6 +57,11 @@ async fn main() -> Result<()> {
             };
             let response = client.new_prediction(request).await;
             println!("{}: {}", response.status(), response.text().await.unwrap());
+        }
+        Commands::GetPredictions => {
+            let client = Client::new(cli.url);
+            let response = client.get_predictions().await?;
+            println!("{:#?}", response);
         }
     }
     Ok(())
