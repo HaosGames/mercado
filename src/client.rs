@@ -20,21 +20,25 @@ impl Client {
             .await
             .unwrap()
     }
-    pub async fn accept_nomination(&self, request: AcceptNominationRequest) -> Response {
-        self.client
+    pub async fn accept_nomination(&self, request: AcceptNominationRequest) -> Result<()> {
+        let response = self
+            .client
             .post(self.url.clone() + "/accept_nomination")
             .json(&request)
             .send()
-            .await
-            .unwrap()
+            .await?;
+        bail_if_err(response).await?;
+        Ok(())
     }
-    pub async fn refuse_nomination(&self, request: AcceptNominationRequest) -> Response {
-        self.client
+    pub async fn refuse_nomination(&self, request: AcceptNominationRequest) -> Result<()> {
+        let response = self
+            .client
             .post(self.url.clone() + "/refuse_nomination")
             .json(&request)
             .send()
-            .await
-            .unwrap()
+            .await?;
+        bail_if_err(response).await?;
+        Ok(())
     }
     pub async fn make_decision(&self, request: MakeDecisionRequest) -> Response {
         self.client

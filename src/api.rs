@@ -1,3 +1,5 @@
+use std::fmt::{Display, Formatter};
+
 use chrono::{DateTime, Utc};
 use log::debug;
 use reqwest::StatusCode;
@@ -119,4 +121,28 @@ pub enum RefundReason {
     Insolvency,
     TimeForDecisionRanOut,
     Tie,
+}
+impl Display for JudgeState {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        let output = match self {
+            Self::Nominated => "Nominated",
+            Self::Accepted => "Accepted",
+            Self::Refused => "Refused",
+            Self::Resolved(_) => "Resolved",
+        };
+        write!(f, "{}", output)
+    }
+}
+impl Display for MarketState {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        let output = match self {
+            Self::WaitingForJudges => "WaitingForJudges",
+            Self::Trading => "Trading",
+            Self::TradingStop => "TradingStop",
+            Self::WaitingForDecision => "WaitingForDecision",
+            Self::Resolved(_) => "Resolved",
+            Self::Refunded(_) => "Refunded",
+        };
+        write!(f, "{}", output)
+    }
 }

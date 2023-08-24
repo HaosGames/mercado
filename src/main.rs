@@ -49,30 +49,32 @@ async fn new_prediction(
 async fn accept_nomination(
     State(state): State<Arc<RwLock<Mercado>>>,
     Json(request): Json<AcceptNominationRequest>,
-) {
+) -> Result<(), (StatusCode, String)> {
     let mut backend = state.write().await;
-    debug!(
-        "Accepting nomination on prediction {} for user {}",
-        request.prediction, request.user
-    );
     backend
         .accept_nomination(&request.prediction, &request.user)
         .await
-        .unwrap();
+        .map_err(map_any_err_and_code)?;
+    debug!(
+        "Accepted nomination on prediction {} for user {}",
+        request.prediction, request.user
+    );
+    Ok(())
 }
 async fn refuse_nomination(
     State(state): State<Arc<RwLock<Mercado>>>,
     Json(request): Json<AcceptNominationRequest>,
-) {
+) -> Result<(), (StatusCode, String)> {
     let mut backend = state.write().await;
-    debug!(
-        "Refusing nomination on prediction {} for user {}",
-        request.prediction, request.user
-    );
     backend
         .refuse_nomination(&request.prediction, &request.user)
         .await
-        .unwrap();
+        .map_err(map_any_err_and_code)?;
+    debug!(
+        "Refused nomination on prediction {} for user {}",
+        request.prediction, request.user
+    );
+    Ok(())
 }
 async fn make_decision(
     State(state): State<Arc<RwLock<Mercado>>>,
@@ -358,8 +360,7 @@ mod test {
             prediction: prediction_id,
             user: j3,
         };
-        let response = client.refuse_nomination(request).await;
-        assert_eq!(response.status(), StatusCode::OK);
+        let response = client.refuse_nomination(request).await.unwrap();
 
         // Accept Nomination for 2 judges
         for judge in [j1, j2] {
@@ -367,8 +368,7 @@ mod test {
                 prediction: prediction_id,
                 user: judge,
             };
-            let response = client.accept_nomination(request).await;
-            assert_eq!(response.status(), StatusCode::OK);
+            let response = client.accept_nomination(request).await.unwrap();
         }
 
         // Add bet for 3 users

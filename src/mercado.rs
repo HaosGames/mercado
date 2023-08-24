@@ -37,17 +37,6 @@ impl FromStr for JudgeState {
         }
     }
 }
-impl Display for JudgeState {
-    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        let output = match self {
-            Self::Nominated => "Nominated",
-            Self::Accepted => "Accepted",
-            Self::Refused => "Refused",
-            Self::Resolved(_) => "Resolved",
-        };
-        write!(f, "{}", output)
-    }
-}
 impl FromStr for MarketState {
     type Err = MercadoError;
     fn from_str(s: &str) -> core::result::Result<Self, Self::Err> {
@@ -60,19 +49,6 @@ impl FromStr for MarketState {
             "Refunded" => Ok(Self::Refunded(RefundReason::TimeForDecisionRanOut)),
             _ => unreachable!(),
         }
-    }
-}
-impl Display for MarketState {
-    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        let output = match self {
-            Self::WaitingForJudges => "WaitingForJudges",
-            Self::Trading => "Trading",
-            Self::TradingStop => "TradingStop",
-            Self::WaitingForDecision => "WaitingForDecision",
-            Self::Resolved(_) => "Resolved",
-            Self::Refunded(_) => "Refunded",
-        };
-        write!(f, "{}", output)
     }
 }
 impl FromStr for RefundReason {
