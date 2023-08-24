@@ -1,4 +1,6 @@
 #![allow(unused)]
+use std::str::FromStr;
+
 use anyhow::Result;
 use api::*;
 use chrono::Utc;
@@ -28,6 +30,12 @@ enum Commands {
         share_ppm: u32,
     },
     GetPredictions,
+    GetPrediction {
+        #[arg(short, long)]
+        prediction: RowId,
+        #[arg(short, long)]
+        user: Option<String>,
+    },
     AddBet {
         #[arg(short, long)]
         bet: bool,
@@ -70,6 +78,23 @@ async fn main() -> Result<()> {
             let client = Client::new(cli.url);
             let response = client.get_predictions().await?;
             println!("{:#?}", response);
+        }
+        Commands::GetPrediction { user, prediction } => {
+            let client = Client::new(cli.url);
+            let request = PredictionRequest {
+                user: if let Some(user) = user {
+                    Some(UserPubKey::from_str(user.as_str()).unwrap())
+                } else {
+                    None
+                },
+                prediction,
+            };
+            let response = client.get_prediction_overview(request.clone()).await?;
+            println!("{:#?}", response);
+            let response = client.get_prediction_ratio(request.clone()).await?;
+            println!("True: {} sats | False {} sats", response.0, response.1);
+            let response = client.get_prediction_judges(request.clone()).await?;
+            println!("Judges: {:#?}", response);
         }
         Commands::AddBet {
             bet,

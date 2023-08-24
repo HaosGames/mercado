@@ -1,4 +1,4 @@
-use anyhow::{bail, Result};
+use anyhow::{bail, Ok, Result};
 use reqwest::{Response, StatusCode};
 
 use crate::api::*;
@@ -84,32 +84,64 @@ impl Client {
             .await
             .unwrap()
     }
-    pub async fn get_predictions(&self) -> Result<Vec<PredictionListItemResponse>> {
+    pub async fn get_predictions(&self) -> Result<Vec<PredictionOverviewResponse>> {
         let response = self
             .client
             .get(self.url.clone() + "/get_predictions")
             .send()
             .await?;
-        if response.status() != StatusCode::OK {
-            bail!("{}: {}", response.status(), response.text().await?)
-        }
-        Ok(response.json::<Vec<PredictionListItemResponse>>().await?)
+        let response = bail_if_err(response).await?;
+        Ok(response.json::<Vec<PredictionOverviewResponse>>().await?)
     }
-    pub async fn get_user_prediction(
-        &self,
-        prediction: RowId,
-        user: UserPubKey,
-    ) -> Result<UserPredictionOverviewResponse> {
-        let request = UserPredictionOverviewRequest { prediction, user };
+    pub async fn get_prediction_ratio(&self, request: PredictionRequest) -> Result<(Sats, Sats)> {
         let response = self
             .client
-            .post(self.url.clone() + "/get_user_prediction")
+            .post(self.url.clone() + "/get_prediction_ratio")
             .json(&request)
             .send()
             .await?;
-        if response.status() != StatusCode::OK {
-            bail!("{}: {}", response.status(), response.text().await?)
-        }
-        Ok(response.json::<UserPredictionOverviewResponse>().await?)
+        let response = bail_if_err(response).await?;
+        let ratio = response.json::<(Sats, Sats)>().await?;
+        Ok(ratio)
+    }
+    pub async fn get_prediction_judges(&self, request: PredictionRequest) -> Result<Vec<Judge>> {
+        let response = self
+            .client
+            .post(self.url.clone() + "/get_prediction_judges")
+            .json(&request)
+            .send()
+            .await?;
+        let response = bail_if_err(response).await?;
+        Ok(response.json::<Vec<Judge>>().await?)
+    }
+    pub async fn get_prediction_overview(
+        &self,
+        request: PredictionRequest,
+    ) -> Result<PredictionOverviewResponse> {
+        let response = self
+            .client
+            .post(self.url.clone() + "/get_prediction_overview")
+            .json(&request)
+            .send()
+            .await?;
+        let response = bail_if_err(response).await?;
+        Ok(response.json::<PredictionOverviewResponse>().await?)
+    }
+    pub async fn get_prediction_bets(&self, request: PredictionRequest) -> Result<Vec<Bet>> {
+        let response = self
+            .client
+            .post(self.url.clone() + "/get_prediction_bets")
+            .json(&request)
+            .send()
+            .await?;
+        let response = bail_if_err(response).await?;
+        Ok(response.json::<Vec<Bet>>().await?)
+    }
+}
+async fn bail_if_err(response: Response) -> Result<Response> {
+    if response.status() != StatusCode::OK {
+        bail!("{}: {}", response.status(), response.text().await?)
+    } else {
+        Ok(response)
     }
 }

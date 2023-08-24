@@ -133,7 +133,7 @@ async fn cash_out_user(
 
 async fn get_predictions(
     State(state): State<Arc<RwLock<Mercado>>>,
-) -> Result<Json<Vec<PredictionListItemResponse>>, (StatusCode, String)> {
+) -> Result<Json<Vec<PredictionOverviewResponse>>, (StatusCode, String)> {
     let mut backend = state.write().await;
     let predictions = backend
         .get_predictions()
@@ -141,35 +141,38 @@ async fn get_predictions(
         .map_err(map_any_err_and_code)?;
     Ok(Json(predictions.into_values().collect()))
 }
-async fn get_user_prediction(
+async fn get_prediction_overview(
     State(state): State<Arc<RwLock<Mercado>>>,
-    Json(request): Json<UserPredictionOverviewRequest>,
-) -> Result<Json<UserPredictionOverviewResponse>, (StatusCode, String)> {
+    Json(request): Json<PredictionRequest>,
+) -> Result<Json<PredictionOverviewResponse>, (StatusCode, String)> {
     let mut backend = state.write().await;
-    let prediction = backend
-        .get_predictions()
+    let overview = backend
+        .get_prediction_overview(request.prediction)
         .await
         .map_err(map_any_err_and_code)?;
-    let prediction = prediction.get(&request.prediction).ok_or((
-        StatusCode::NOT_FOUND,
-        format!("Couldn't find prediction {}", request.prediction),
-    ))?;
-    let user_bets = backend
-        .get_user_prediction_bets(&request.prediction, &request.user)
+    Ok(Json(overview))
+}
+async fn get_prediction_ratio(
+    State(state): State<Arc<RwLock<Mercado>>>,
+    Json(request): Json<PredictionRequest>,
+) -> Result<Json<(Sats, Sats)>, (StatusCode, String)> {
+    let mut backend = state.write().await;
+    let ratio = backend
+        .get_prediction_ratio(request.prediction)
         .await
         .map_err(map_any_err_and_code)?;
-    let result = UserPredictionOverviewResponse {
-        id: prediction.id,
-        name: prediction.name.clone(),
-        judge_share_ppm: prediction.judge_share_ppm,
-        trading_end: prediction.trading_end,
-        decision_period_sec: prediction.decision_period_sec,
-        bets_true: prediction.bets_true,
-        bets_false: prediction.bets_false,
-        user_bets,
-        judge_count: prediction.judge_count,
-    };
-    Ok(Json(result))
+    Ok(Json(ratio))
+}
+async fn get_prediction_judges(
+    State(state): State<Arc<RwLock<Mercado>>>,
+    Json(request): Json<PredictionRequest>,
+) -> Result<Json<Vec<Judge>>, (StatusCode, String)> {
+    let mut backend = state.write().await;
+    let judges = backend
+        .get_prediction_judges(request.prediction)
+        .await
+        .map_err(map_any_err_and_code)?;
+    Ok(Json(judges))
 }
 async fn get_bet() {}
 async fn get_user_bets() {}
@@ -220,7 +223,9 @@ async fn run_server(port: Option<u16>, admin: bool) -> (u16, JoinHandle<()>) {
         .route("/make_decision", post(make_decision))
         .route("/cash_out_user", post(cash_out_user))
         .route("/get_predictions", get(get_predictions))
-        .route("/get_user_prediction", post(get_user_prediction));
+        .route("/get_prediction_overview", post(get_prediction_overview))
+        .route("/get_prediction_ratio", post(get_prediction_ratio))
+        .route("/get_prediction_judges", post(get_prediction_judges));
     let app = if admin {
         app.route("/pay_bet", post(pay_bet))
             .route("/force_decision_period", post(force_decision_period))
@@ -351,7 +356,14 @@ mod test {
 
         let predictions = client.get_predictions().await.unwrap();
         let prediction = predictions.first().unwrap();
-        assert_eq!(prediction.bets_true, 300);
+        let ratio = client
+            .get_prediction_ratio(PredictionRequest {
+                user: None,
+                prediction: prediction_id,
+            })
+            .await
+            .unwrap();
+        assert_eq!(ratio.0, 300);
         assert_eq!(prediction.name, "Test prediction".to_string());
     }
 }

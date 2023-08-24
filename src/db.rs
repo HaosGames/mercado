@@ -1,6 +1,6 @@
-use crate::api::{Bet, BetState, Invoice, PredictionListItemResponse, RowId, Sats, UserPubKey};
-use crate::mercado::{JudgeState, MarketState, Prediction, RefundReason};
-use anyhow::{Context, Result};
+use crate::api::*;
+use crate::mercado::Prediction;
+use anyhow::{Context, Ok, Result};
 use async_trait::async_trait;
 use chrono::{DateTime, Duration, TimeZone, Utc};
 use sqlx::{query, Executor, Pool, Row, SqlitePool};
@@ -41,7 +41,7 @@ pub trait DB {
     async fn settle_bet(&self, bet: &Invoice, amount: Sats) -> Result<()>;
     async fn init_bet_refund(&self, bet: &Invoice, refund_invoice: Option<&Invoice>) -> Result<()>;
     async fn settle_bet_refund(&self, bet: &Invoice) -> Result<()>;
-    async fn get_user_prediction_bets(
+    async fn get_prediction_user_bets(
         &self,
         user: &UserPubKey,
         prediction: &RowId,
@@ -57,12 +57,19 @@ pub trait DB {
         prediction: &RowId,
         user: &UserPubKey,
     ) -> Result<(Option<Invoice>, Sats)>;
-    async fn get_prediction_bets(
+    async fn get_prediction_bets_aggregated(
         &self,
-        prediction: &RowId,
+        prediction: RowId,
         outcome: bool,
     ) -> Result<HashMap<UserPubKey, Sats>>;
-    async fn get_predictions(&self) -> Result<HashMap<RowId, PredictionListItemResponse>>;
+    async fn get_prediction_bets(&self, prediction: RowId) -> Result<Vec<Bet>>;
+    async fn get_predictions(&self) -> Result<HashMap<RowId, PredictionOverviewResponse>>;
+    async fn get_prediction_overview(
+        &self,
+        prediction: RowId,
+    ) -> Result<PredictionOverviewResponse>;
+    async fn get_prediction_judges(&self, prediction: RowId) -> Result<Vec<Judge>>;
+    async fn get_prediction_ratio(&self, prediction: RowId) -> Result<(Sats, Sats)>;
 }
 pub struct SQLite {
     connection: SqlitePool,
@@ -499,7 +506,7 @@ impl DB for SQLite {
             .await?;
         Ok(())
     }
-    async fn get_user_prediction_bets(
+    async fn get_prediction_user_bets(
         &self,
         user: &UserPubKey,
         prediction: &RowId,
@@ -596,20 +603,36 @@ impl DB for SQLite {
         Ok((invoice, amount))
     }
 
-    async fn get_prediction_bets(
+    async fn get_prediction_bets_aggregated(
         &self,
-        prediction: &RowId,
+        prediction: RowId,
         outcome: bool,
     ) -> Result<HashMap<UserPubKey, Sats>> {
+        let mut aggregated_bets = HashMap::new();
+        let bets: Vec<Bet> = self
+            .get_prediction_bets(prediction)
+            .await?
+            .into_iter()
+            .filter(|p| p.bet == outcome)
+            .collect();
+        for bet in bets {
+            if let Some(bet_amount) = bet.amount {
+                if let Some(amount) = aggregated_bets.get_mut(&bet.user) {
+                    *amount += bet_amount;
+                } else {
+                    aggregated_bets.insert(bet.user, bet_amount);
+                }
+            }
+        }
+        Ok(aggregated_bets)
+    }
+    async fn get_prediction_bets(&self, prediction: RowId) -> Result<Vec<Bet>> {
         let stmt = query(
             "SELECT user, prediction, bet, amount, state, refund_invoice, fund_invoice \
-                FROM bets WHERE bet = ? AND prediction = ?",
+                FROM bets WHERE prediction = ?",
         );
         let mut bets = Vec::new();
-        let rows = self
-            .connection
-            .fetch_all(stmt.bind(outcome).bind(prediction))
-            .await?;
+        let rows = self.connection.fetch_all(stmt.bind(prediction)).await?;
         for row in rows {
             let user = UserPubKey::from_str(row.get("user")).unwrap();
             let prediction = row.get("prediction");
@@ -636,20 +659,9 @@ impl DB for SQLite {
                 refund_invoice,
             });
         }
-        let mut aggregated_bets = HashMap::new();
-        for bet in bets {
-            if let Some(bet_amount) = bet.amount {
-                if let Some(amount) = aggregated_bets.get_mut(&bet.user) {
-                    *amount += bet_amount;
-                } else {
-                    aggregated_bets.insert(bet.user, bet_amount);
-                }
-            }
-        }
-        Ok(aggregated_bets)
+        Ok(bets)
     }
-
-    async fn get_predictions(&self) -> Result<HashMap<RowId, PredictionListItemResponse>> {
+    async fn get_predictions(&self) -> Result<HashMap<RowId, PredictionOverviewResponse>> {
         let stmt = query(
             "SELECT predictions.rowid, predictions.prediction, judge_share_ppm, judge_count, trading_end, \
             decision_period, predictions.state, bet, sum(amount) AS amount \
@@ -659,7 +671,7 @@ impl DB for SQLite {
         );
         let rows = self.connection.fetch_all(stmt).await?;
 
-        let mut predictions: HashMap<RowId, PredictionListItemResponse> = HashMap::new();
+        let mut predictions: HashMap<RowId, PredictionOverviewResponse> = HashMap::new();
         for row in rows {
             let id = row.get("rowid");
             let name = row.get("prediction");
@@ -667,31 +679,80 @@ impl DB for SQLite {
             let judge_count = row.get("judge_count");
             let decision_period_sec = row.get("decision_period");
             let trading_end = Utc.timestamp_opt(row.get("trading_end"), 0).unwrap();
-            let bet = row.get("bet");
-            let amount = row.get("amount");
+            let state = MarketState::from_str(row.get("state")).unwrap();
 
-            if let Some(mut prediction) = predictions.get_mut(&id) {
-                if bet {
-                    prediction.bets_true = amount;
-                } else {
-                    prediction.bets_false = amount;
-                }
-            } else {
-                predictions.insert(
+            predictions.insert(
+                id,
+                PredictionOverviewResponse {
                     id,
-                    PredictionListItemResponse {
-                        id,
-                        name,
-                        judge_share_ppm,
-                        judge_count,
-                        trading_end,
-                        decision_period_sec,
-                        bets_true: if bet { amount } else { 0 },
-                        bets_false: if bet { 0 } else { amount },
-                    },
-                );
-            }
+                    name,
+                    judge_share_ppm,
+                    judge_count,
+                    trading_end,
+                    decision_period_sec,
+                    state,
+                },
+            );
         }
         Ok(predictions)
+    }
+    async fn get_prediction_overview(
+        &self,
+        prediction: RowId,
+    ) -> Result<PredictionOverviewResponse> {
+        let stmt = query(
+            "SELECT rowid, prediction, judge_share_ppm, judge_count, trading_end, \
+            decision_period, state \
+            FROM predictions",
+        );
+        let row = self.connection.fetch_one(stmt).await?;
+        let overview = PredictionOverviewResponse {
+            id: row.get("rowid"),
+            name: row.get("prediction"),
+            judge_share_ppm: row.get("judge_share_ppm"),
+            judge_count: row.get("judge_count"),
+            trading_end: Utc.timestamp_opt(row.get("trading_end"), 0).unwrap(),
+            decision_period_sec: row.get("decision_period"),
+            state: MarketState::from_str(row.get("state")).unwrap(),
+        };
+        Ok(overview)
+    }
+    async fn get_prediction_judges(&self, prediction: RowId) -> Result<Vec<Judge>> {
+        let stmt = query(
+            "SELECT user, prediction, state, decision \
+            FROM judges \
+            WHERE prediction = ?",
+        );
+        let rows = self.connection.fetch_all(stmt.bind(prediction)).await?;
+        let judges = rows
+            .into_iter()
+            .map(|row| Judge {
+                user: UserPubKey::from_str(row.get("user")).unwrap(),
+                prediction: row.get("prediction"),
+                state: JudgeState::from_str(row.get("state")).unwrap(),
+            })
+            .collect();
+        Ok(judges)
+    }
+    async fn get_prediction_ratio(&self, prediction: RowId) -> Result<(Sats, Sats)> {
+        let stmt_true = query(
+            "SELECT SUM(amount) AS amount \
+            FROM bets \
+            WHERE prediction = ? AND bet = true",
+        );
+        let stmt_false = query(
+            "SELECT SUM(amount) AS amount \
+            FROM bets \
+            WHERE prediction = ? AND bet = false",
+        );
+        let row_true = self
+            .connection
+            .fetch_one(stmt_true.bind(prediction))
+            .await?;
+        let row_false = self
+            .connection
+            .fetch_one(stmt_false.bind(prediction))
+            .await?;
+        Ok((row_true.get("amount"), row_false.get("amount")))
     }
 }

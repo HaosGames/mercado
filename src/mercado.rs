@@ -1,4 +1,4 @@
-use crate::api::{Bet, BetState, Invoice, PredictionListItemResponse, RowId, Sats, UserPubKey};
+use crate::api::*;
 use crate::{
     db::DB,
     funding_source::{FundingSource, InvoiceState},
@@ -25,13 +25,6 @@ pub struct Prediction {
     pub judge_count: u32,
     pub cash_out: Option<CashOut>,
 }
-#[derive(PartialEq, Debug, Clone)]
-pub enum JudgeState {
-    Nominated,
-    Accepted,
-    Refused,
-    Resolved(bool),
-}
 impl FromStr for JudgeState {
     type Err = MercadoError;
     fn from_str(s: &str) -> core::result::Result<Self, Self::Err> {
@@ -54,15 +47,6 @@ impl Display for JudgeState {
         };
         write!(f, "{}", output)
     }
-}
-#[derive(PartialEq, Debug, Clone)]
-pub enum MarketState {
-    WaitingForJudges,
-    Trading,
-    TradingStop,
-    WaitingForDecision,
-    Resolved(bool),
-    Refunded(RefundReason),
 }
 impl FromStr for MarketState {
     type Err = MercadoError;
@@ -90,12 +74,6 @@ impl Display for MarketState {
         };
         write!(f, "{}", output)
     }
-}
-#[derive(PartialEq, Debug, Clone)]
-pub enum RefundReason {
-    Insolvency,
-    TimeForDecisionRanOut,
-    Tie,
 }
 impl FromStr for RefundReason {
     type Err = MercadoError;
@@ -131,11 +109,6 @@ pub struct Mercado {
     funding: Arc<Box<dyn FundingSource + Send + Sync>>,
 }
 
-pub struct Judge {
-    user: UserPubKey,
-    prediction: RowId,
-    state: JudgeState,
-}
 impl FromStr for BetState {
     type Err = MercadoError;
     fn from_str(s: &str) -> core::result::Result<Self, Self::Err> {
@@ -320,7 +293,7 @@ impl Mercado {
                     .await?
             }
         }
-        if let Some(cash_out) = self.calculate_cash_out(prediction).await? {
+        if let Some(cash_out) = self.calculate_cash_out(prediction.clone()).await? {
             self.db.set_cash_out(prediction, cash_out).await?;
             Ok(())
         } else {
@@ -332,10 +305,13 @@ impl Mercado {
     }
     async fn calculate_cash_out(
         &self,
-        prediction: &RowId,
+        prediction: RowId,
     ) -> Result<Option<HashMap<UserPubKey, Sats>>> {
-        if let MarketState::Resolved(outcome) = self.db.get_prediction_state(prediction).await? {
-            let bets = self.db.get_prediction_bets(prediction, outcome).await?;
+        if let MarketState::Resolved(outcome) = self.db.get_prediction_state(&prediction).await? {
+            let bets = self
+                .db
+                .get_prediction_bets_aggregated(prediction, outcome)
+                .await?;
             let outcome_amount = self.get_prediction_bets(prediction, outcome).await?;
             let non_outcome_amount = self.get_prediction_bets(prediction, !outcome).await?;
 
@@ -347,7 +323,7 @@ impl Mercado {
                     bet_amount,
                     outcome_amount,
                     non_outcome_amount,
-                    self.db.get_judge_share_ppm(prediction).await?,
+                    self.db.get_judge_share_ppm(&prediction).await?,
                 );
                 if cash_out == 0 {
                     continue;
@@ -358,15 +334,15 @@ impl Mercado {
 
             // Calculate judges
             let mut judge_cash_out_amount = 0;
-            let judge_outcome_count = self.get_outcome_judge_count(prediction).await?;
-            for (judge, state) in self.db.get_judges(prediction).await? {
+            let judge_outcome_count = self.get_outcome_judge_count(&prediction).await?;
+            for (judge, state) in self.db.get_judges(&prediction).await? {
                 if let JudgeState::Resolved(decision) = state {
                     if decision == outcome {
                         let cash_out = Self::calculate_judge_cash_out(
                             judge_outcome_count,
                             outcome_amount,
                             non_outcome_amount,
-                            self.db.get_judge_share_ppm(prediction).await?,
+                            self.db.get_judge_share_ppm(&prediction).await?,
                         );
                         if cash_out == 0 {
                             continue;
@@ -633,19 +609,35 @@ impl Mercado {
         }
         bail!(MercadoError::WrongMarketState)
     }
-    pub async fn get_predictions(&self) -> Result<HashMap<RowId, PredictionListItemResponse>> {
+    pub async fn get_predictions(&self) -> Result<HashMap<RowId, PredictionOverviewResponse>> {
         self.db.get_predictions().await
     }
-    pub async fn get_prediction_bets(&self, prediction: &RowId, bet: bool) -> Result<Sats> {
-        let bets = self.db.get_prediction_bets(prediction, bet).await?;
+    pub async fn get_prediction_overview(
+        &self,
+        prediction: RowId,
+    ) -> Result<PredictionOverviewResponse> {
+        self.db.get_prediction_overview(prediction).await
+    }
+
+    pub async fn get_prediction_bets(&self, prediction: RowId, bet: bool) -> Result<Sats> {
+        let bets = self
+            .db
+            .get_prediction_bets_aggregated(prediction, bet)
+            .await?;
         Ok(bets.values().sum())
     }
-    pub async fn get_user_prediction_bets(
+    pub async fn get_prediction_ratio(&self, prediction: RowId) -> Result<(Sats, Sats)> {
+        self.db.get_prediction_ratio(prediction).await
+    }
+    pub async fn get_prediction_user_bets(
         &self,
         prediction: &RowId,
         user: &UserPubKey,
     ) -> Result<Vec<Bet>> {
-        self.db.get_user_prediction_bets(user, prediction).await
+        self.db.get_prediction_user_bets(user, prediction).await
+    }
+    pub async fn get_prediction_judges(&self, prediction: RowId) -> Result<Vec<Judge>> {
+        self.db.get_prediction_judges(prediction).await
     }
     pub async fn force_decision_period(&self, prediction: &RowId) -> Result<()> {
         match self.db.get_prediction_state(prediction).await? {
