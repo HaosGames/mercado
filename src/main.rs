@@ -174,6 +174,17 @@ async fn get_prediction_judges(
         .map_err(map_any_err_and_code)?;
     Ok(Json(judges))
 }
+async fn get_prediction_bets(
+    State(state): State<Arc<RwLock<Mercado>>>,
+    Json(request): Json<PredictionRequest>,
+) -> Result<Json<Vec<Bet>>, (StatusCode, String)> {
+    let mut backend = state.write().await;
+    let bets = backend
+        .get_prediction_bets(request.prediction, request.user)
+        .await
+        .map_err(map_any_err_and_code)?;
+    Ok(Json(bets))
+}
 async fn get_bet() {}
 async fn get_user_bets() {}
 async fn get_user_prediction_bets() {}
@@ -225,7 +236,8 @@ async fn run_server(port: Option<u16>, admin: bool) -> (u16, JoinHandle<()>) {
         .route("/get_predictions", get(get_predictions))
         .route("/get_prediction_overview", post(get_prediction_overview))
         .route("/get_prediction_ratio", post(get_prediction_ratio))
-        .route("/get_prediction_judges", post(get_prediction_judges));
+        .route("/get_prediction_judges", post(get_prediction_judges))
+        .route("/get_prediction_bets", post(get_prediction_bets));
     let app = if admin {
         app.route("/pay_bet", post(pay_bet))
             .route("/force_decision_period", post(force_decision_period))

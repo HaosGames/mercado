@@ -312,8 +312,12 @@ impl Mercado {
                 .db
                 .get_prediction_bets_aggregated(prediction, outcome)
                 .await?;
-            let outcome_amount = self.get_prediction_bets(prediction, outcome).await?;
-            let non_outcome_amount = self.get_prediction_bets(prediction, !outcome).await?;
+            let outcome_amount = self
+                .get_prediction_bets_aggregated(prediction, outcome)
+                .await?;
+            let non_outcome_amount = self
+                .get_prediction_bets_aggregated(prediction, !outcome)
+                .await?;
 
             // Calculate users
             let mut user_cash_outs = HashMap::new();
@@ -619,12 +623,28 @@ impl Mercado {
         self.db.get_prediction_overview(prediction).await
     }
 
-    pub async fn get_prediction_bets(&self, prediction: RowId, bet: bool) -> Result<Sats> {
+    pub async fn get_prediction_bets_aggregated(
+        &self,
+        prediction: RowId,
+        bet: bool,
+    ) -> Result<Sats> {
         let bets = self
             .db
             .get_prediction_bets_aggregated(prediction, bet)
             .await?;
         Ok(bets.values().sum())
+    }
+    pub async fn get_prediction_bets(
+        &self,
+        prediction: RowId,
+        user: Option<UserPubKey>,
+    ) -> Result<Vec<Bet>> {
+        let bets = self.db.get_prediction_bets(prediction).await?;
+        if let Some(user) = user {
+            Ok(bets.into_iter().filter(|bet| bet.user == user).collect())
+        } else {
+            Ok(bets)
+        }
     }
     pub async fn get_prediction_ratio(&self, prediction: RowId) -> Result<(Sats, Sats)> {
         self.db.get_prediction_ratio(prediction).await

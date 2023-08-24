@@ -46,7 +46,7 @@ pub struct CashOutUserRequest {
     pub user: UserPubKey,
     pub invoice: Invoice,
 }
-#[derive(Debug, Serialize, Deserialize, Clone)]
+#[derive(Debug, Serialize, Deserialize, Clone, PartialEq)]
 pub struct PredictionRequest {
     pub prediction: RowId,
     pub user: Option<UserPubKey>,
