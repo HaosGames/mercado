@@ -383,13 +383,11 @@ mod test {
                 invoice,
                 amount: 100,
             };
-            let response = client.pay_bet(request).await;
-            assert_eq!(response.status(), StatusCode::OK)
+            let response = client.pay_bet(request).await.unwrap();
         }
 
         // Forcing the end of the decision period
-        let response = client.force_decision_period(prediction_id).await;
-        assert_eq!(response.status(), StatusCode::OK);
+        let response = client.force_decision_period(prediction_id).await.unwrap();
 
         // Voting for outcomes for 2 judges
         for judge in [j1, j2] {
@@ -398,8 +396,7 @@ mod test {
                 judge,
                 decision: true,
             };
-            let response = client.make_decision(request).await;
-            assert_eq!(response.status(), StatusCode::OK);
+            let response = client.make_decision(request).await.unwrap();
         }
 
         // Cash out users
@@ -409,9 +406,8 @@ mod test {
                 user,
                 invoice: user.to_string(),
             };
-            let response = client.cash_out_user(request).await;
-            assert_eq!(response.status(), StatusCode::OK);
-            assert_eq!(response.json::<Sats>().await.unwrap(), 89);
+            let sats = client.cash_out_user(request).await.unwrap();
+            assert_eq!(sats, 89);
         }
 
         // Cash out judges
@@ -421,9 +417,8 @@ mod test {
                 user: judge,
                 invoice: judge.to_string(),
             };
-            let response = client.cash_out_user(request).await;
-            assert_eq!(response.status(), StatusCode::OK);
-            assert_eq!(response.json::<Sats>().await.unwrap(), 15);
+            let sats = client.cash_out_user(request).await.unwrap();
+            assert_eq!(sats, 15);
         }
 
         let predictions = client.get_predictions().await.unwrap();

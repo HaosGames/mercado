@@ -1,5 +1,6 @@
 use anyhow::{bail, Ok, Result};
 use reqwest::{Response, StatusCode};
+use serde::Serialize;
 
 use crate::api::*;
 
@@ -12,6 +13,24 @@ impl Client {
         let client = reqwest::Client::new();
         Self { url, client }
     }
+    pub async fn post(
+        &self,
+        path: &'static str,
+        request: impl Serialize,
+        expexted_code: StatusCode,
+    ) -> Result<Response> {
+        let response = self
+            .client
+            .post(self.url.clone() + path)
+            .json(&request)
+            .send()
+            .await?;
+        bail_if_err(response, expexted_code).await
+    }
+    pub async fn get(&self, path: &'static str, expexted_code: StatusCode) -> Result<Response> {
+        let response = self.client.get(self.url.clone() + path).send().await?;
+        bail_if_err(response, expexted_code).await
+    }
     pub async fn new_prediction(&self, request: NewPredictionRequest) -> Response {
         self.client
             .post(self.url.clone() + "/new_prediction")
@@ -21,101 +40,52 @@ impl Client {
             .unwrap()
     }
     pub async fn accept_nomination(&self, request: AcceptNominationRequest) -> Result<()> {
-        let response = self
-            .client
-            .post(self.url.clone() + "/accept_nomination")
-            .json(&request)
-            .send()
+        self.post("/accept_nomination", request, StatusCode::OK)
             .await?;
-        bail_if_err(response).await?;
         Ok(())
     }
     pub async fn refuse_nomination(&self, request: AcceptNominationRequest) -> Result<()> {
-        let response = self
-            .client
-            .post(self.url.clone() + "/refuse_nomination")
-            .json(&request)
-            .send()
+        self.post("/refuse_nomination", request, StatusCode::OK)
             .await?;
-        bail_if_err(response).await?;
         Ok(())
     }
-    pub async fn make_decision(&self, request: MakeDecisionRequest) -> Response {
-        self.client
-            .post(self.url.clone() + "/make_decision")
-            .json(&request)
-            .send()
-            .await
-            .unwrap()
+    pub async fn make_decision(&self, request: MakeDecisionRequest) -> Result<()> {
+        self.post("/make_decision", request, StatusCode::OK).await?;
+        Ok(())
     }
     pub async fn add_bet(&self, request: AddBetRequest) -> Result<Invoice> {
-        let response = self
-            .client
-            .post(self.url.clone() + "/add_bet")
-            .json(&request)
-            .send()
-            .await?;
-        if response.status() != StatusCode::CREATED {
-            bail!("{}: {}", response.status(), response.text().await?)
-        }
+        let response = self.post("/add_bet", request, StatusCode::CREATED).await?;
         Ok(response.text().await?)
     }
-    #[cfg(test)]
-    pub async fn pay_bet(&self, request: PayBetRequest) -> Response {
-        self.client
-            .post(self.url.clone() + "/pay_bet")
-            .json(&request)
-            .send()
-            .await
-            .unwrap()
+    pub async fn pay_bet(&self, request: PayBetRequest) -> Result<()> {
+        self.post("/pay_bet", request, StatusCode::OK).await?;
+        Ok(())
     }
     pub async fn check_bet(&self) {}
     pub async fn cancel_bet(&self) {}
-    pub async fn cash_out_user(&self, request: CashOutUserRequest) -> Response {
-        self.client
-            .post(self.url.clone() + "/cash_out_user")
-            .json(&request)
-            .send()
-            .await
-            .unwrap()
+    pub async fn cash_out_user(&self, request: CashOutUserRequest) -> Result<Sats> {
+        let response = self.post("/cash_out_user", request, StatusCode::OK).await?;
+        Ok(response.json::<Sats>().await?)
     }
-    #[cfg(test)]
-    pub async fn force_decision_period(&self, prediction: RowId) -> Response {
-        self.client
-            .post(self.url.clone() + "/force_decision_period")
-            .json(&prediction)
-            .send()
-            .await
-            .unwrap()
+    pub async fn force_decision_period(&self, prediction: RowId) -> Result<()> {
+        self.post("/force_decision_period", prediction, StatusCode::OK)
+            .await?;
+        Ok(())
     }
     pub async fn get_predictions(&self) -> Result<Vec<PredictionOverviewResponse>> {
-        let response = self
-            .client
-            .get(self.url.clone() + "/get_predictions")
-            .send()
-            .await?;
-        let response = bail_if_err(response).await?;
+        let response = self.get("/get_predictions", StatusCode::OK).await?;
         Ok(response.json::<Vec<PredictionOverviewResponse>>().await?)
     }
     pub async fn get_prediction_ratio(&self, request: PredictionRequest) -> Result<(Sats, Sats)> {
         let response = self
-            .client
-            .post(self.url.clone() + "/get_prediction_ratio")
-            .json(&request)
-            .send()
+            .post("/get_prediction_ratio", request, StatusCode::OK)
             .await?;
-        let response = bail_if_err(response).await?;
-        let ratio = response.json::<(Sats, Sats)>().await?;
-        Ok(ratio)
+        Ok(response.json::<(Sats, Sats)>().await?)
     }
     pub async fn get_prediction_judges(&self, request: PredictionRequest) -> Result<Vec<Judge>> {
         let response = self
-            .client
-            .post(self.url.clone() + "/get_prediction_judges")
-            .json(&request)
-            .send()
+            .post("/get_prediction_judges", request, StatusCode::OK)
             .await?;
-        let response = bail_if_err(response).await?;
         Ok(response.json::<Vec<Judge>>().await?)
     }
     pub async fn get_prediction_overview(
@@ -123,27 +93,19 @@ impl Client {
         request: PredictionRequest,
     ) -> Result<PredictionOverviewResponse> {
         let response = self
-            .client
-            .post(self.url.clone() + "/get_prediction_overview")
-            .json(&request)
-            .send()
+            .post("/get_prediction_overview", request, StatusCode::OK)
             .await?;
-        let response = bail_if_err(response).await?;
         Ok(response.json::<PredictionOverviewResponse>().await?)
     }
     pub async fn get_prediction_bets(&self, request: PredictionRequest) -> Result<Vec<Bet>> {
         let response = self
-            .client
-            .post(self.url.clone() + "/get_prediction_bets")
-            .json(&request)
-            .send()
+            .post("/get_prediction_bets", request, StatusCode::OK)
             .await?;
-        let response = bail_if_err(response).await?;
         Ok(response.json::<Vec<Bet>>().await?)
     }
 }
-async fn bail_if_err(response: Response) -> Result<Response> {
-    if response.status() != StatusCode::OK {
+async fn bail_if_err(response: Response, expexted_code: StatusCode) -> Result<Response> {
+    if response.status() != expexted_code {
         bail!("{}: {}", response.status(), response.text().await?)
     } else {
         Ok(response)
