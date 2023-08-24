@@ -9,7 +9,7 @@ pub type RowId = i64;
 pub type Invoice = String;
 
 // Requests
-#[derive(Debug, Deserialize, Serialize)]
+#[derive(Debug, Deserialize, Serialize, Clone)]
 pub struct NewPredictionRequest {
     pub prediction: String,
     pub judges: Vec<UserPubKey>,
@@ -53,7 +53,7 @@ pub struct PredictionRequest {
 }
 
 // Responses
-#[derive(Debug, Serialize, Deserialize, Clone)]
+#[derive(PartialEq, Debug, Serialize, Deserialize, Clone)]
 pub struct PredictionOverviewResponse {
     pub id: RowId,
     pub name: String,

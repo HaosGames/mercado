@@ -253,7 +253,67 @@ mod test {
     use super::*;
 
     #[tokio::test]
-    async fn main() {
+    async fn new_prediction() {
+        let (port, _) = run_server(None, true).await;
+        let client = Client::new("http://127.0.0.1:".to_string() + port.to_string().as_str());
+
+        let (_, j1) = generate_keypair(&mut rand::thread_rng());
+        let (_, j2) = generate_keypair(&mut rand::thread_rng());
+        let (_, j3) = generate_keypair(&mut rand::thread_rng());
+
+        let mut prediction_request = PredictionRequest {
+            prediction: 1,
+            user: None,
+        };
+        client
+            .get_prediction_overview(prediction_request.clone())
+            .await
+            .unwrap_err();
+
+        // Create a new Prediction
+        let prediction_http_request = NewPredictionRequest {
+            prediction: "Test prediction".into(),
+            judges: vec![j1, j2, j3],
+            judge_share_ppm: 100000,
+            trading_end: Utc::now() + Duration::days(3),
+            decision_period_sec: Duration::days(1).num_seconds().try_into().unwrap(),
+            judge_count: 2,
+        };
+        let response = client.new_prediction(prediction_http_request.clone()).await;
+        assert_eq!(response.status(), StatusCode::CREATED);
+        let prediction_id = response.json::<RowId>().await.unwrap();
+        prediction_request.prediction = prediction_id;
+
+        let prediction = client
+            .get_prediction_overview(prediction_request.clone())
+            .await
+            .unwrap();
+        let ratio = client
+            .get_prediction_ratio(prediction_request.clone())
+            .await
+            .unwrap();
+        let judges = client
+            .get_prediction_judges(prediction_request)
+            .await
+            .unwrap();
+        assert_eq!(
+            prediction,
+            PredictionOverviewResponse {
+                id: prediction_id,
+                name: "Test prediction".into(),
+                state: MarketState::WaitingForJudges,
+                judge_share_ppm: 100000,
+                judge_count: 2,
+                trading_end: Utc
+                    .timestamp_opt(prediction_http_request.trading_end.timestamp(), 0)
+                    .unwrap(),
+                decision_period_sec: 86400,
+            }
+        )
+    }
+
+    #[tokio::test]
+    async fn all() {
         // Builder::default()
         //     .filter_level(LevelFilter::Debug)
         //     .write_style(WriteStyle::Always)
