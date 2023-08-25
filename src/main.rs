@@ -13,6 +13,7 @@ use axum_macros::debug_handler;
 use chrono::{Duration, TimeZone, Utc};
 use clap::Parser;
 use env_logger::{Builder, WriteStyle};
+use log::trace;
 use log::{debug, LevelFilter};
 use std::str::FromStr;
 use std::sync::Arc;
@@ -207,12 +208,12 @@ async fn get_login_challenge(
     Json(user): Json<UserPubKey>,
 ) -> Result<String, (StatusCode, String)> {
     let mut backend = state.write().await;
-    debug!("Getting login challenge for {}", user);
+    trace!("Getting login challenge for {}", user);
     let challenge = backend
         .get_login_challenge(user)
         .await
         .map_err(map_any_err_and_code)?;
-    debug!("Login challenge for user {}", user);
+    debug!("Login challenge for user {}: {}", user, challenge);
     Ok(challenge)
 }
 async fn try_login(
@@ -233,11 +234,11 @@ async fn update_user(
 ) -> Result<(), (StatusCode, String)> {
     let mut backend = state.write().await;
     backend
-        .check_access(request.access)
+        .check_access(request.access.clone())
         .await
-        .map_err(map_any_err_and_code)?;
+        .map_err(|e| (StatusCode::UNAUTHORIZED, map_any_err(e)))?;
     backend
-        .update_user(request.data.user, request.data.name)
+        .update_user(request.access.user, request.data.username)
         .await
         .map_err(map_any_err_and_code)?;
     Ok(())

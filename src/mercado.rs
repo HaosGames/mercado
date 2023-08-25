@@ -5,7 +5,7 @@ use crate::{
 };
 use anyhow::{anyhow, bail, Context, Result};
 use chrono::{DateTime, Duration, Utc};
-use log::debug;
+use log::{debug, trace};
 use rust_decimal::prelude::ToPrimitive;
 use rust_decimal::Decimal;
 use secp256k1::ecdsa::Signature;
@@ -680,7 +680,7 @@ impl Mercado {
             .take(30)
             .map(char::from)
             .collect();
-        debug!("Generated login challenge {}", challenge);
+        trace!("Generated login challenge {}", challenge);
         self.db
             .update_login_challenge(user, challenge.clone())
             .await?;

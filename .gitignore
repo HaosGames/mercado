@@ -1,6 +1,7 @@
 /target
 .idea
 ecdsa*
+access_token
 
 
 # Added by cargo

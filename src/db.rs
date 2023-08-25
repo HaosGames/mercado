@@ -147,7 +147,7 @@ impl SQLite {
                 last_access,\
                 login_challenge,\
                 access_token,\
-                username,\
+                username UNIQUE,\
                 PRIMARY KEY (pubkey)\
                 )",
             )

@@ -5,7 +5,9 @@ use anyhow::Result;
 use api::*;
 use chrono::Utc;
 use clap::{Parser, Subcommand};
-use secp256k1::{generate_keypair, hashes::sha256::Hash, rand, Message, SecretKey, SECP256K1};
+use secp256k1::{
+    ecdsa::Signature, generate_keypair, hashes::sha256::Hash, rand, Message, SecretKey, SECP256K1,
+};
 use tokio::{
     fs::File,
     io::{AsyncReadExt, AsyncWriteExt},
@@ -50,6 +52,10 @@ enum Commands {
     },
     GenerateKeys,
     Login,
+    UpdateUser {
+        #[arg(short, long)]
+        username: Option<String>,
+    },
 }
 
 #[tokio::main]
@@ -129,6 +135,8 @@ async fn main() -> Result<()> {
             let challenge = client.get_login_challenge(user.clone()).await?;
             let message = Message::from_hashed_data::<Hash>(challenge.as_bytes());
             let signature = secret_key.sign_ecdsa(message);
+            let mut file = File::create("access_token").await?;
+            file.write_all(signature.to_string().as_bytes()).await?;
             println!("Signed Challenge \"{}\"", challenge);
             let request = LoginRequest {
                 user,
@@ -137,12 +145,36 @@ async fn main() -> Result<()> {
             client.try_login(request).await?;
             println!("Logged in as {}", user);
         }
+        Commands::UpdateUser { username } => {
+            let request = PostRequest {
+                access: access_request().await?,
+                data: UpdateUserRequest { username },
+            };
+            client.update_user(request).await?;
+        }
     }
     Ok(())
+}
+async fn access_request() -> Result<AccessRequest> {
+    let user = read_public().await?;
+    let sig = read_token().await?;
+    Ok(AccessRequest { user, sig })
 }
 async fn read_secret() -> Result<SecretKey> {
     let mut file = File::open("ecdsa.key").await?;
     let mut contents = vec![];
     file.read_to_end(&mut contents).await?;
     Ok(SecretKey::from_str(String::from_utf8(contents)?.as_str())?)
+}
+async fn read_public() -> Result<UserPubKey> {
+    let mut file = File::open("ecdsa.pub").await?;
+    let mut contents = vec![];
+    file.read_to_end(&mut contents).await?;
+    Ok(UserPubKey::from_str(String::from_utf8(contents)?.as_str())?)
+}
+async fn read_token() -> Result<Signature> {
+    let mut file = File::open("access_token").await?;
+    let mut contents = vec![];
+    file.read_to_end(&mut contents).await?;
+    Ok(Signature::from_str(String::from_utf8(contents)?.as_str())?)
 }

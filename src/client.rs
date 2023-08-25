@@ -13,7 +13,7 @@ impl Client {
         let client = reqwest::Client::new();
         Self { url, client }
     }
-    pub async fn post(
+    async fn post(
         &self,
         path: &'static str,
         request: impl Serialize,
@@ -27,7 +27,7 @@ impl Client {
             .await?;
         bail_if_err(response, expexted_code).await
     }
-    pub async fn get(&self, path: &'static str, expexted_code: StatusCode) -> Result<Response> {
+    async fn get(&self, path: &'static str, expexted_code: StatusCode) -> Result<Response> {
         let response = self.client.get(self.url.clone() + path).send().await?;
         bail_if_err(response, expexted_code).await
     }
@@ -113,11 +113,12 @@ impl Client {
         let _response = self.post("/try_login", request, StatusCode::OK).await?;
         Ok(())
     }
-    pub async fn update_user(&self, request: UpdateUserRequest) -> Result<()> {
+    pub async fn update_user(&self, request: PostRequest<UpdateUserRequest>) -> Result<()> {
         self.post("/update_user", request, StatusCode::OK).await?;
         Ok(())
     }
 }
+
 async fn bail_if_err(response: Response, expexted_code: StatusCode) -> Result<Response> {
     if response.status() != expexted_code {
         bail!("{}: {}", response.status(), response.text().await?)

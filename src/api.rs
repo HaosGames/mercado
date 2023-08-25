@@ -29,8 +29,7 @@ pub struct LoginRequest {
 }
 #[derive(Debug, Deserialize, Serialize, Clone)]
 pub struct UpdateUserRequest {
-    pub user: UserPubKey,
-    pub name: Option<String>,
+    pub username: Option<String>,
 }
 #[derive(Debug, Deserialize, Serialize, Clone)]
 pub struct NewPredictionRequest {
