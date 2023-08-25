@@ -202,13 +202,55 @@ async fn force_decision_period(
     );
     backend.force_decision_period(&request).await.unwrap();
 }
+async fn get_login_challenge(
+    State(state): State<Arc<RwLock<Mercado>>>,
+    Json(user): Json<UserPubKey>,
+) -> Result<String, (StatusCode, String)> {
+    let mut backend = state.write().await;
+    debug!("Getting login challenge for {}", user);
+    let challenge = backend
+        .get_login_challenge(user)
+        .await
+        .map_err(map_any_err_and_code)?;
+    debug!("Login challenge for user {}", user);
+    Ok(challenge)
+}
+async fn try_login(
+    State(state): State<Arc<RwLock<Mercado>>>,
+    Json(request): Json<LoginRequest>,
+) -> Result<(), (StatusCode, String)> {
+    let mut backend = state.write().await;
+    backend
+        .try_login(request.user, request.sig)
+        .await
+        .map_err(map_any_err_and_code)?;
+    debug!("User {} successfully logged in", request.user);
+    Ok(())
+}
+async fn update_user(
+    State(state): State<Arc<RwLock<Mercado>>>,
+    Json(request): Json<PostRequest<UpdateUserRequest>>,
+) -> Result<(), (StatusCode, String)> {
+    let mut backend = state.write().await;
+    backend
+        .check_access(request.access)
+        .await
+        .map_err(map_any_err_and_code)?;
+    backend
+        .update_user(request.data.user, request.data.name)
+        .await
+        .map_err(map_any_err_and_code)?;
+    Ok(())
+}
 
 #[derive(Parser)]
 struct Args {
-    #[arg(short, long, default_value_t = true)]
-    admin: bool,
+    #[arg(short, long)]
+    admin: Option<String>,
     #[arg(short, long, default_value_t = 8081)]
     port: u16,
+    #[arg(short, long, default_value_t = true)]
+    test: bool,
 }
 
 #[tokio::main]
@@ -218,12 +260,12 @@ async fn main() -> Result<()> {
         .write_style(WriteStyle::Always)
         .init();
     let cli = Args::parse();
-    let (_port, handle) = run_server(Some(cli.port), cli.admin).await;
+    let (_port, handle) = run_server(Some(cli.port), cli.admin, cli.test).await;
     handle.await;
     Ok(())
 }
 
-async fn run_server(port: Option<u16>, admin: bool) -> (u16, JoinHandle<()>) {
+async fn run_server(port: Option<u16>, admin: Option<String>, test: bool) -> (u16, JoinHandle<()>) {
     let state = Arc::new(RwLock::new(Mercado::new(
         Box::new(SQLite::new().await),
         Box::new(TestFundingSource::default()),
@@ -239,8 +281,11 @@ async fn run_server(port: Option<u16>, admin: bool) -> (u16, JoinHandle<()>) {
         .route("/get_prediction_overview", post(get_prediction_overview))
         .route("/get_prediction_ratio", post(get_prediction_ratio))
         .route("/get_prediction_judges", post(get_prediction_judges))
-        .route("/get_prediction_bets", post(get_prediction_bets));
-    let app = if admin {
+        .route("/get_prediction_bets", post(get_prediction_bets))
+        .route("/try_login", post(try_login))
+        .route("/get_login_challenge", post(get_login_challenge))
+        .route("/update_user", post(update_user));
+    let app = if test {
         app.route("/pay_bet", post(pay_bet))
             .route("/force_decision_period", post(force_decision_period))
     } else {
@@ -268,7 +313,7 @@ mod test {
 
     #[tokio::test]
     async fn new_prediction() {
-        let (port, _) = run_server(None, true).await;
+        let (port, _) = run_server(None, None, true).await;
         let client = Client::new("http://127.0.0.1:".to_string() + port.to_string().as_str());
 
         let (_, j1) = generate_keypair(&mut rand::thread_rng());
@@ -332,7 +377,7 @@ mod test {
         //     .filter_level(LevelFilter::Debug)
         //     .write_style(WriteStyle::Always)
         //     .init();
-        let (port, _) = run_server(None, true).await;
+        let (port, _) = run_server(None, None, true).await;
         let client = Client::new("http://127.0.0.1:".to_string() + port.to_string().as_str());
 
         let (_, u1) = generate_keypair(&mut rand::thread_rng());

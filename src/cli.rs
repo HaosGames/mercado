@@ -5,7 +5,11 @@ use anyhow::Result;
 use api::*;
 use chrono::Utc;
 use clap::{Parser, Subcommand};
-use secp256k1::{generate_keypair, rand};
+use secp256k1::{generate_keypair, hashes::sha256::Hash, rand, Message, SecretKey, SECP256K1};
+use tokio::{
+    fs::File,
+    io::{AsyncReadExt, AsyncWriteExt},
+};
 
 use crate::client::Client;
 
@@ -44,11 +48,14 @@ enum Commands {
         #[arg(short, long)]
         prediction: u32,
     },
+    GenerateKeys,
+    Login,
 }
 
 #[tokio::main]
 async fn main() -> Result<()> {
     let cli = Args::parse();
+    let client = Client::new(cli.url);
 
     // You can check for the existence of subcommands, and if found use their
     // matches just as you would the top level cmd
@@ -58,7 +65,6 @@ async fn main() -> Result<()> {
             judges,
             share_ppm,
         } => {
-            let client = Client::new(cli.url);
             let mut new_judges = vec![];
             for i in 0..judges {
                 new_judges.push(generate_keypair(&mut rand::thread_rng()).1);
@@ -75,12 +81,10 @@ async fn main() -> Result<()> {
             println!("{}: {}", response.status(), response.text().await.unwrap());
         }
         Commands::GetPredictions => {
-            let client = Client::new(cli.url);
             let response = client.get_predictions().await?;
             println!("{:#?}", response);
         }
         Commands::GetPrediction { user, prediction } => {
-            let client = Client::new(cli.url);
             let request = PredictionRequest {
                 user: if let Some(user) = user {
                     Some(UserPubKey::from_str(user.as_str()).unwrap())
@@ -101,7 +105,6 @@ async fn main() -> Result<()> {
             amount,
             prediction,
         } => {
-            let client = Client::new(cli.url);
             let request = AddBetRequest {
                 bet,
                 prediction: prediction.into(),
@@ -110,6 +113,36 @@ async fn main() -> Result<()> {
             let invoice = client.add_bet(request).await?;
             println!("Invoice: {}", invoice);
         }
+        Commands::GenerateKeys => {
+            let keys = generate_keypair(&mut rand::thread_rng());
+            println!("Pubkey: {}", keys.1);
+            let mut private = File::create("ecdsa.key").await?;
+            let mut public = File::create("ecdsa.pub").await?;
+            private
+                .write_all(format!("{}", keys.0.display_secret()).as_bytes())
+                .await?;
+            public.write_all(keys.1.to_string().as_bytes()).await?;
+        }
+        Commands::Login => {
+            let secret_key = read_secret().await?;
+            let user = UserPubKey::from_secret_key_global(&secret_key);
+            let challenge = client.get_login_challenge(user.clone()).await?;
+            let message = Message::from_hashed_data::<Hash>(challenge.as_bytes());
+            let signature = secret_key.sign_ecdsa(message);
+            println!("Signed Challenge \"{}\"", challenge);
+            let request = LoginRequest {
+                user,
+                sig: signature,
+            };
+            client.try_login(request).await?;
+            println!("Logged in as {}", user);
+        }
     }
     Ok(())
+}
+async fn read_secret() -> Result<SecretKey> {
+    let mut file = File::open("ecdsa.key").await?;
+    let mut contents = vec![];
+    file.read_to_end(&mut contents).await?;
+    Ok(SecretKey::from_str(String::from_utf8(contents)?.as_str())?)
 }

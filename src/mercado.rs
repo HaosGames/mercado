@@ -5,8 +5,14 @@ use crate::{
 };
 use anyhow::{anyhow, bail, Context, Result};
 use chrono::{DateTime, Duration, Utc};
+use log::debug;
 use rust_decimal::prelude::ToPrimitive;
 use rust_decimal::Decimal;
+use secp256k1::ecdsa::Signature;
+use secp256k1::hashes::sha256::Hash;
+use secp256k1::rand::distributions::Alphanumeric;
+use secp256k1::rand::Rng;
+use secp256k1::{rand, Message};
 use std::cmp::Ordering;
 use std::collections::HashMap;
 use std::fmt::{Display, Formatter};
@@ -649,6 +655,48 @@ impl Mercado {
         self.funding.pay_invoice(invoice, amount).await?;
         self.check_bet(invoice).await?;
         Ok(())
+    }
+    pub async fn check_access(&mut self, access: AccessRequest) -> Result<()> {
+        let (db_sig, last_access) = self.db.get_last_access(access.user).await?;
+        if access.sig != db_sig {
+            debug!(
+                "User {} tried to access with invalid access token",
+                access.user
+            );
+            bail!("Access token for user {} is invalid", access.user)
+        }
+        if last_access < Utc::now() - Duration::days(7) {
+            debug!(
+                "User {} tried to access after more than 7 days",
+                access.user
+            );
+            bail!("Last access was more than 7 days ago")
+        }
+        Ok(())
+    }
+    pub async fn get_login_challenge(&mut self, user: UserPubKey) -> Result<String> {
+        let challenge: String = rand::thread_rng()
+            .sample_iter(&Alphanumeric)
+            .take(30)
+            .map(char::from)
+            .collect();
+        debug!("Generated login challenge {}", challenge);
+        self.db
+            .update_login_challenge(user, challenge.clone())
+            .await?;
+        Ok(challenge)
+    }
+    pub async fn try_login(&mut self, user: UserPubKey, sig: Signature) -> Result<()> {
+        let challenge = self.db.get_login_challenge(user).await?;
+        sig.verify(
+            &Message::from_hashed_data::<Hash>(challenge.as_bytes()),
+            &user,
+        )?;
+        self.db.update_access_token(user, sig).await?;
+        Ok(())
+    }
+    pub async fn update_user(&self, user: UserPubKey, name: Option<String>) -> Result<()> {
+        self.db.update_user(user, name).await
     }
 }
 

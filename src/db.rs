@@ -3,6 +3,7 @@ use crate::mercado::Prediction;
 use anyhow::{Context, Ok, Result};
 use async_trait::async_trait;
 use chrono::{DateTime, Duration, TimeZone, Utc};
+use secp256k1::ecdsa::Signature;
 use sqlx::{query, Executor, Pool, Row, SqlitePool};
 use std::collections::HashMap;
 use std::str::FromStr;
@@ -70,6 +71,13 @@ pub trait DB {
     ) -> Result<PredictionOverviewResponse>;
     async fn get_prediction_judges(&self, prediction: RowId) -> Result<Vec<Judge>>;
     async fn get_prediction_ratio(&self, prediction: RowId) -> Result<(Sats, Sats)>;
+
+    async fn update_login_challenge(&self, user: UserPubKey, challenge: String) -> Result<()>;
+    async fn get_login_challenge(&self, user: UserPubKey) -> Result<String>;
+    async fn update_access_token(&self, user: UserPubKey, sig: Signature) -> Result<()>;
+    async fn update_access(&self, user: UserPubKey) -> Result<()>;
+    async fn get_last_access(&self, user: UserPubKey) -> Result<(Signature, DateTime<Utc>)>;
+    async fn update_user(&self, user: UserPubKey, name: Option<String>) -> Result<()>;
 }
 pub struct SQLite {
     connection: SqlitePool,
@@ -129,6 +137,19 @@ impl SQLite {
             invoice,\
             PRIMARY KEY (user,prediction)\
             )",
+            )
+            .await
+            .unwrap();
+        connection
+            .execute(
+                "CREATE TABLE IF NOT EXISTS users (\
+                pubkey,\
+                last_access,\
+                login_challenge,\
+                access_token,\
+                username,\
+                PRIMARY KEY (pubkey)\
+                )",
             )
             .await
             .unwrap();
@@ -754,5 +775,83 @@ impl DB for SQLite {
             .fetch_one(stmt_false.bind(prediction))
             .await?;
         Ok((row_true.get("amount"), row_false.get("amount")))
+    }
+    async fn update_login_challenge(&self, user: UserPubKey, challenge: String) -> Result<()> {
+        let stmt = query(
+            "INSERT OR REPLACE INTO users \
+            (pubkey, login_challenge) VALUES \
+            (?, ?)",
+        );
+        self.connection
+            .execute(stmt.bind(user.to_string()).bind(challenge))
+            .await?;
+        Ok(())
+    }
+    async fn get_login_challenge(&self, user: UserPubKey) -> Result<String> {
+        let stmt = query(
+            "SELECT pubkey, login_challenge \
+            FROM users \
+            WHERE pubkey = ?",
+        );
+        let row = self
+            .connection
+            .fetch_one(stmt.bind(user.to_string()))
+            .await?;
+        let challenge = row.get("login_challenge");
+        Ok(challenge)
+    }
+    async fn update_access_token(&self, user: UserPubKey, sig: Signature) -> Result<()> {
+        let stmt = query(
+            "UPDATE users SET \
+            access_token = ?, \
+            last_access = ? \
+            WHERE pubkey = ?",
+        );
+        self.connection
+            .execute(
+                stmt.bind(sig.to_string())
+                    .bind(Utc::now())
+                    .bind(user.to_string()),
+            )
+            .await?;
+        Ok(())
+    }
+    async fn update_access(&self, user: UserPubKey) -> Result<()> {
+        let stmt = query(
+            "UPDATE users SET \
+            last_access = ? \
+            WHERE pubkey = ?",
+        );
+        self.connection
+            .execute(stmt.bind(Utc::now()).bind(user.to_string()))
+            .await?;
+        Ok(())
+    }
+    async fn get_last_access(&self, user: UserPubKey) -> Result<(Signature, DateTime<Utc>)> {
+        let stmt = query(
+            "SELECT access_token, last_access \
+            FROM users \
+            WHERE pubkey = ?",
+        );
+        let row = self
+            .connection
+            .fetch_one(stmt.bind(user.to_string()))
+            .await?;
+        let token: String = row.get("access_token");
+        let last_access = row.get("last_access");
+        Ok((Signature::from_str(token.as_str())?, last_access))
+    }
+    async fn update_user(&self, user: UserPubKey, name: Option<String>) -> Result<()> {
+        if let Some(name) = name {
+            let stmt = query(
+                "UPDATE users SET \
+            username = ? \
+            WHERE pubkey = ?",
+            );
+            self.connection
+                .execute(stmt.bind(name).bind(user.to_string()))
+                .await?;
+        }
+        Ok(())
     }
 }

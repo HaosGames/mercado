@@ -103,6 +103,20 @@ impl Client {
             .await?;
         Ok(response.json::<Vec<Bet>>().await?)
     }
+    pub async fn get_login_challenge(&self, user: UserPubKey) -> Result<String> {
+        let response = self
+            .post("/get_login_challenge", user, StatusCode::OK)
+            .await?;
+        Ok(response.text().await?)
+    }
+    pub async fn try_login(&self, request: LoginRequest) -> Result<()> {
+        let _response = self.post("/try_login", request, StatusCode::OK).await?;
+        Ok(())
+    }
+    pub async fn update_user(&self, request: UpdateUserRequest) -> Result<()> {
+        self.post("/update_user", request, StatusCode::OK).await?;
+        Ok(())
+    }
 }
 async fn bail_if_err(response: Response, expexted_code: StatusCode) -> Result<Response> {
     if response.status() != expexted_code {

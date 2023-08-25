@@ -3,6 +3,7 @@ use std::fmt::{Display, Formatter};
 use chrono::{DateTime, Utc};
 use log::debug;
 use reqwest::StatusCode;
+use secp256k1::ecdsa::Signature;
 use serde::{Deserialize, Serialize};
 
 pub type Sats = u32;
@@ -11,6 +12,26 @@ pub type RowId = i64;
 pub type Invoice = String;
 
 // Requests
+#[derive(Debug, Deserialize, Serialize, Clone)]
+pub struct AccessRequest {
+    pub user: UserPubKey,
+    pub sig: Signature,
+}
+#[derive(Debug, Deserialize, Serialize, Clone)]
+pub struct PostRequest<T> {
+    pub access: AccessRequest,
+    pub data: T,
+}
+#[derive(Debug, Deserialize, Serialize, Clone)]
+pub struct LoginRequest {
+    pub user: UserPubKey,
+    pub sig: Signature,
+}
+#[derive(Debug, Deserialize, Serialize, Clone)]
+pub struct UpdateUserRequest {
+    pub user: UserPubKey,
+    pub name: Option<String>,
+}
 #[derive(Debug, Deserialize, Serialize, Clone)]
 pub struct NewPredictionRequest {
     pub prediction: String,
