@@ -6,6 +6,7 @@ use crate::{
 use anyhow::{anyhow, bail, Context, Result};
 use chrono::{DateTime, Duration, Utc};
 use log::{debug, trace};
+use reqwest::StatusCode;
 use rust_decimal::prelude::ToPrimitive;
 use rust_decimal::Decimal;
 use secp256k1::ecdsa::Signature;
@@ -89,6 +90,7 @@ pub struct CashOut {
 pub struct Mercado {
     db: Arc<Box<dyn DB + Send + Sync>>,
     funding: Arc<Box<dyn FundingSource + Send + Sync>>,
+    test: bool,
 }
 
 impl FromStr for BetState {
@@ -114,15 +116,52 @@ impl Display for BetState {
         write!(f, "{}", output)
     }
 }
+#[derive(Debug)]
+pub enum UserRole {
+    User,
+    Admin,
+    Root,
+}
+impl Display for UserRole {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        let output = match self {
+            Self::User => "User",
+            Self::Admin => "Admin",
+            Self::Root => "Root",
+        };
+        write!(f, "{}", output)
+    }
+}
+impl FromStr for UserRole {
+    type Err = anyhow::Error;
+
+    fn from_str(s: &str) -> std::result::Result<Self, Self::Err> {
+        match s {
+            "User" => Ok(Self::User),
+            "Admin" => Ok(Self::Admin),
+            "Root" => Ok(Self::Root),
+            e => bail!("Couldn't deserialize to UserRole: {}", e),
+        }
+    }
+}
 impl Mercado {
-    pub fn new(
+    pub async fn new(
         db: Box<dyn DB + Send + Sync>,
         funding: Box<dyn FundingSource + Send + Sync>,
-    ) -> Self {
-        Self {
+        admins: Vec<String>,
+        test: bool,
+    ) -> Result<Self> {
+        let me = Self {
             db: Arc::new(db),
             funding: Arc::new(funding),
+            test,
+        };
+        for admin in admins {
+            me.db
+                .create_user(UserPubKey::from_str(admin.as_str())?, UserRole::Root)
+                .await?;
         }
+        Ok(me)
     }
     pub async fn new_prediction(
         &self,
@@ -175,7 +214,13 @@ impl Mercado {
             .await?;
         Ok(id)
     }
-    pub async fn accept_nomination(&mut self, prediction: &RowId, user: &UserPubKey) -> Result<()> {
+    pub async fn accept_nomination(
+        &mut self,
+        prediction: &RowId,
+        user: &UserPubKey,
+        access: AccessRequest,
+    ) -> Result<()> {
+        self.check_access_for_user(user.clone(), access).await?;
         match self
             .db
             .get_prediction_state(prediction)
@@ -196,7 +241,13 @@ impl Mercado {
             e => e,
         }
     }
-    pub async fn refuse_nomination(&mut self, prediction: &RowId, user: &UserPubKey) -> Result<()> {
+    pub async fn refuse_nomination(
+        &mut self,
+        prediction: &RowId,
+        user: &UserPubKey,
+        access: AccessRequest,
+    ) -> Result<()> {
+        self.check_access_for_user(user.clone(), access).await?;
         match self.db.get_prediction_state(prediction).await? {
             MarketState::WaitingForJudges => {}
             _ => bail!(MercadoError::WrongMarketState),
@@ -211,7 +262,9 @@ impl Mercado {
         prediction: &RowId,
         judge: &UserPubKey,
         decision: bool,
+        access: AccessRequest,
     ) -> Result<()> {
+        self.check_access_for_user(judge.clone(), access).await?;
         match self.db.get_prediction_state(prediction).await? {
             MarketState::WaitingForDecision => {
                 if self.db.get_trading_end(prediction).await?
@@ -420,7 +473,9 @@ impl Mercado {
         prediction: &RowId,
         user: &UserPubKey,
         bet: bool,
+        access: AccessRequest,
     ) -> Result<Invoice> {
+        self.check_access_for_user(user.clone(), access).await?;
         match self.db.get_prediction_state(prediction).await? {
             MarketState::Trading => {
                 if self.db.get_trading_end(prediction).await? < Utc::now() {
@@ -440,8 +495,9 @@ impl Mercado {
         //self.check_bet(&invoice).await?;
         Ok(invoice)
     }
-    pub async fn check_bet(&self, invoice: &String) -> Result<BetState> {
+    pub async fn check_bet(&self, invoice: &String, access: AccessRequest) -> Result<BetState> {
         let bet = self.db.get_bet(invoice).await?;
+        self.check_access_for_user(bet.user, access).await?;
         match bet.state {
             BetState::FundInit => {
                 let fund_invoice_state = self.funding.check_invoice(invoice).await?;
@@ -484,9 +540,11 @@ impl Mercado {
         &mut self,
         invoice: &Invoice,
         refund_invoice: &Invoice,
+        access: AccessRequest,
     ) -> Result<BetState> {
         let bet = self.db.get_bet(invoice).await?;
-        let state = self.check_bet(invoice).await?;
+        self.check_access_for_user(bet.user, access.clone()).await?;
+        let state = self.check_bet(invoice, access.clone()).await?;
         let market_state = self.db.get_prediction_state(&bet.prediction).await?;
         match state {
             BetState::Funded => {
@@ -534,7 +592,9 @@ impl Mercado {
         prediction: &RowId,
         user: &UserPubKey,
         invoice: &Invoice,
+        access: AccessRequest,
     ) -> Result<Sats> {
+        self.check_access_for_user(user.clone(), access).await?;
         match self.db.get_prediction_state(prediction).await? {
             MarketState::Resolved { .. } => {}
             _ => bail!(MercadoError::WrongMarketState),
@@ -635,13 +695,22 @@ impl Mercado {
         &self,
         prediction: &RowId,
         user: &UserPubKey,
+        access: AccessRequest,
     ) -> Result<Vec<Bet>> {
+        self.check_access_for_user(user.clone(), access).await?;
         self.db.get_prediction_user_bets(user, prediction).await
     }
     pub async fn get_prediction_judges(&self, prediction: RowId) -> Result<Vec<Judge>> {
         self.db.get_prediction_judges(prediction).await
     }
-    pub async fn force_decision_period(&self, prediction: &RowId) -> Result<()> {
+    pub async fn force_decision_period(
+        &self,
+        prediction: &RowId,
+        access: AccessRequest,
+    ) -> Result<()> {
+        if let UserRole::User = self.check_access(access).await? {
+            bail!("Access Denied: Admin only API");
+        }
         match self.db.get_prediction_state(prediction).await? {
             MarketState::Trading => {
                 self.db
@@ -651,12 +720,23 @@ impl Mercado {
             _ => bail!(MercadoError::WrongMarketState),
         }
     }
-    pub async fn pay_bet(&self, invoice: &Invoice, amount: Sats) -> Result<()> {
+    pub async fn pay_bet(
+        &self,
+        invoice: &Invoice,
+        amount: Sats,
+        access: AccessRequest,
+    ) -> Result<()> {
+        if let UserRole::User = self.check_access(access.clone()).await? {
+            bail!("Access Denied: Admin only API");
+        }
         self.funding.pay_invoice(invoice, amount).await?;
-        self.check_bet(invoice).await?;
+        self.check_bet(invoice, access).await?;
         Ok(())
     }
-    pub async fn check_access(&mut self, access: AccessRequest) -> Result<()> {
+    pub async fn check_access(&self, access: AccessRequest) -> Result<UserRole> {
+        if self.test {
+            return Ok(UserRole::Root);
+        }
         let (db_sig, last_access) = self.db.get_last_access(access.user).await?;
         if access.sig != db_sig {
             debug!(
@@ -672,9 +752,11 @@ impl Mercado {
             );
             bail!("Last access was more than 7 days ago")
         }
-        Ok(())
+        let role = self.db.get_user_role(access.user).await?;
+        Ok(role)
     }
     pub async fn get_login_challenge(&mut self, user: UserPubKey) -> Result<String> {
+        self.db.create_user(user, UserRole::User).await?;
         let challenge: String = rand::thread_rng()
             .sample_iter(&Alphanumeric)
             .take(30)
@@ -695,8 +777,26 @@ impl Mercado {
         self.db.update_access_token(user, sig).await?;
         Ok(())
     }
-    pub async fn update_user(&self, user: UserPubKey, name: Option<String>) -> Result<()> {
+    pub async fn update_user(
+        &self,
+        user: UserPubKey,
+        name: Option<String>,
+        access: AccessRequest,
+    ) -> Result<()> {
+        self.check_access_for_user(user, access).await?;
         self.db.update_user(user, name).await
+    }
+    pub async fn check_access_for_user(
+        &self,
+        user: UserPubKey,
+        access: AccessRequest,
+    ) -> Result<()> {
+        if let UserRole::User = self.check_access(access.clone()).await? {
+            if user != access.user {
+                bail!("Access Denied: Cannot issue request on behalf of other users");
+            }
+        }
+        Ok(())
     }
 }
 
@@ -784,6 +884,13 @@ mod test {
     use std::sync::Arc;
     use tokio::sync::Mutex;
 
+    fn get_test_access() -> AccessRequest {
+        AccessRequest {
+            user: UserPubKey::from_str("023d51452445aa81ecc3cfcb82dbfe937707db5c89f9f9d21d64835158df405d8c").unwrap(),
+            sig: Signature::from_str("30440220208cef162c7081dafc61004daec32f5a3dadb4c6a1b4c0a479056a4962288d47022069022bc92673f73e9843cea14fa0cc46efa1b1e150339b603444c63035de21ee").unwrap()
+        }
+    }
+
     #[tokio::test]
     async fn it_works() {
         let (_, u1) = generate_keypair(&mut rand::thread_rng());
@@ -796,7 +903,12 @@ mod test {
         let mut market = Mercado::new(
             Box::new(SQLite::new().await),
             Box::new(TestFundingSource::default()),
-        );
+            vec![],
+            true,
+        )
+        .await
+        .unwrap();
+        let access = get_test_access();
         let prediction = market
             .new_prediction(
                 "It works".to_string(),
@@ -808,57 +920,87 @@ mod test {
             )
             .await
             .unwrap();
-        market.accept_nomination(&prediction, &j1).await.unwrap();
-        market.accept_nomination(&prediction, &j2).await.unwrap();
-        market.accept_nomination(&prediction, &j3).await.unwrap();
-        let i1 = market.add_bet(&prediction, &u1, true).await.unwrap();
-        let i2 = market.add_bet(&prediction, &u2, true).await.unwrap();
-        let i3 = market.add_bet(&prediction, &u3, true).await.unwrap();
-        market.pay_bet(&i1, 100).await.unwrap();
-        market.pay_bet(&i2, 100).await.unwrap();
-        market.pay_bet(&i3, 100).await.unwrap();
-        market.force_decision_period(&prediction).await.unwrap();
-        market.make_decision(&prediction, &j1, true).await.unwrap();
-        market.make_decision(&prediction, &j2, true).await.unwrap();
-        market.make_decision(&prediction, &j3, true).await.unwrap();
+        market
+            .accept_nomination(&prediction, &j1, access)
+            .await
+            .unwrap();
+        market
+            .accept_nomination(&prediction, &j2, access)
+            .await
+            .unwrap();
+        market
+            .accept_nomination(&prediction, &j3, access)
+            .await
+            .unwrap();
+        let i1 = market
+            .add_bet(&prediction, &u1, true, access)
+            .await
+            .unwrap();
+        let i2 = market
+            .add_bet(&prediction, &u2, true, access)
+            .await
+            .unwrap();
+        let i3 = market
+            .add_bet(&prediction, &u3, true, access)
+            .await
+            .unwrap();
+        market.pay_bet(&i1, 100, access).await.unwrap();
+        market.pay_bet(&i2, 100, access).await.unwrap();
+        market.pay_bet(&i3, 100, access).await.unwrap();
+        market
+            .force_decision_period(&prediction, access)
+            .await
+            .unwrap();
+        market
+            .make_decision(&prediction, &j1, true, access)
+            .await
+            .unwrap();
+        market
+            .make_decision(&prediction, &j2, true, access)
+            .await
+            .unwrap();
+        market
+            .make_decision(&prediction, &j3, true, access)
+            .await
+            .unwrap();
         assert_eq!(
             market
-                .cash_out_user(&prediction, &u1, &"i1".to_string())
+                .cash_out_user(&prediction, &u1, &"i1".to_string(), access)
                 .await
                 .unwrap(),
             89
         );
         assert_eq!(
             market
-                .cash_out_user(&prediction, &u2, &"i2".to_string())
+                .cash_out_user(&prediction, &u2, &"i2".to_string(), access)
                 .await
                 .unwrap(),
             89
         );
         assert_eq!(
             market
-                .cash_out_user(&prediction, &u3, &"i3".to_string())
+                .cash_out_user(&prediction, &u3, &"i3".to_string(), access)
                 .await
                 .unwrap(),
             89
         );
         assert_eq!(
             market
-                .cash_out_user(&prediction, &j1, &"i4".to_string())
+                .cash_out_user(&prediction, &j1, &"i4".to_string(), access)
                 .await
                 .unwrap(),
             10
         );
         assert_eq!(
             market
-                .cash_out_user(&prediction, &j2, &"i5".to_string())
+                .cash_out_user(&prediction, &j2, &"i5".to_string(), access)
                 .await
                 .unwrap(),
             10
         );
         assert_eq!(
             market
-                .cash_out_user(&prediction, &j3, &"i6".to_string())
+                .cash_out_user(&prediction, &j3, &"i6".to_string(), access)
                 .await
                 .unwrap(),
             10

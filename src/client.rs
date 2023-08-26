@@ -39,37 +39,112 @@ impl Client {
             .await
             .unwrap()
     }
-    pub async fn accept_nomination(&self, request: AcceptNominationRequest) -> Result<()> {
-        self.post("/accept_nomination", request, StatusCode::OK)
+    pub async fn accept_nomination(
+        &self,
+        request: AcceptNominationRequest,
+        access: AccessRequest,
+    ) -> Result<()> {
+        self.post(
+            "/accept_nomination",
+            PostRequest {
+                data: request,
+                access,
+            },
+            StatusCode::OK,
+        )
+        .await?;
+        Ok(())
+    }
+    pub async fn refuse_nomination(
+        &self,
+        request: AcceptNominationRequest,
+        access: AccessRequest,
+    ) -> Result<()> {
+        self.post(
+            "/refuse_nomination",
+            PostRequest {
+                data: request,
+                access,
+            },
+            StatusCode::OK,
+        )
+        .await?;
+        Ok(())
+    }
+    pub async fn make_decision(
+        &self,
+        request: MakeDecisionRequest,
+        access: AccessRequest,
+    ) -> Result<()> {
+        self.post(
+            "/make_decision",
+            PostRequest {
+                data: request,
+                access,
+            },
+            StatusCode::OK,
+        )
+        .await?;
+        Ok(())
+    }
+    pub async fn add_bet(&self, request: AddBetRequest, access: AccessRequest) -> Result<Invoice> {
+        let response = self
+            .post(
+                "/add_bet",
+                PostRequest {
+                    data: request,
+                    access,
+                },
+                StatusCode::CREATED,
+            )
             .await?;
-        Ok(())
-    }
-    pub async fn refuse_nomination(&self, request: AcceptNominationRequest) -> Result<()> {
-        self.post("/refuse_nomination", request, StatusCode::OK)
-            .await?;
-        Ok(())
-    }
-    pub async fn make_decision(&self, request: MakeDecisionRequest) -> Result<()> {
-        self.post("/make_decision", request, StatusCode::OK).await?;
-        Ok(())
-    }
-    pub async fn add_bet(&self, request: AddBetRequest) -> Result<Invoice> {
-        let response = self.post("/add_bet", request, StatusCode::CREATED).await?;
         Ok(response.text().await?)
     }
-    pub async fn pay_bet(&self, request: PayBetRequest) -> Result<()> {
-        self.post("/pay_bet", request, StatusCode::OK).await?;
+    pub async fn pay_bet(&self, request: PayBetRequest, access: AccessRequest) -> Result<()> {
+        self.post(
+            "/pay_bet",
+            PostRequest {
+                data: request,
+                access,
+            },
+            StatusCode::OK,
+        )
+        .await?;
         Ok(())
     }
     pub async fn check_bet(&self) {}
     pub async fn cancel_bet(&self) {}
-    pub async fn cash_out_user(&self, request: CashOutUserRequest) -> Result<Sats> {
-        let response = self.post("/cash_out_user", request, StatusCode::OK).await?;
+    pub async fn cash_out_user(
+        &self,
+        request: CashOutUserRequest,
+        access: AccessRequest,
+    ) -> Result<Sats> {
+        let response = self
+            .post(
+                "/cash_out_user",
+                PostRequest {
+                    data: request,
+                    access,
+                },
+                StatusCode::OK,
+            )
+            .await?;
         Ok(response.json::<Sats>().await?)
     }
-    pub async fn force_decision_period(&self, prediction: RowId) -> Result<()> {
-        self.post("/force_decision_period", prediction, StatusCode::OK)
-            .await?;
+    pub async fn force_decision_period(
+        &self,
+        prediction: RowId,
+        access: AccessRequest,
+    ) -> Result<()> {
+        self.post(
+            "/force_decision_period",
+            PostRequest {
+                data: prediction,
+                access,
+            },
+            StatusCode::OK,
+        )
+        .await?;
         Ok(())
     }
     pub async fn get_predictions(&self) -> Result<Vec<PredictionOverviewResponse>> {
@@ -113,8 +188,24 @@ impl Client {
         let _response = self.post("/try_login", request, StatusCode::OK).await?;
         Ok(())
     }
-    pub async fn update_user(&self, request: PostRequest<UpdateUserRequest>) -> Result<()> {
-        self.post("/update_user", request, StatusCode::OK).await?;
+    pub async fn check_login(&self, access: AccessRequest) -> Result<()> {
+        self.post("/check_login", access, StatusCode::OK).await?;
+        Ok(())
+    }
+    pub async fn update_user(
+        &self,
+        request: UpdateUserRequest,
+        access: AccessRequest,
+    ) -> Result<()> {
+        self.post(
+            "/update_user",
+            PostRequest {
+                data: request,
+                access,
+            },
+            StatusCode::OK,
+        )
+        .await?;
         Ok(())
     }
 }

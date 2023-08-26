@@ -12,7 +12,7 @@ pub type RowId = i64;
 pub type Invoice = String;
 
 // Requests
-#[derive(Debug, Deserialize, Serialize, Clone)]
+#[derive(Debug, Deserialize, Serialize, Clone, Copy, PartialEq)]
 pub struct AccessRequest {
     pub user: UserPubKey,
     pub sig: Signature,
@@ -29,6 +29,7 @@ pub struct LoginRequest {
 }
 #[derive(Debug, Deserialize, Serialize, Clone)]
 pub struct UpdateUserRequest {
+    pub user: UserPubKey,
     pub username: Option<String>,
 }
 #[derive(Debug, Deserialize, Serialize, Clone)]
@@ -40,7 +41,7 @@ pub struct NewPredictionRequest {
     pub decision_period_sec: u32,
     pub judge_count: u32,
 }
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct AcceptNominationRequest {
     pub prediction: RowId,
     pub user: UserPubKey,

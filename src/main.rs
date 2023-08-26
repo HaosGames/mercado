@@ -29,9 +29,10 @@ mod mercado;
 #[debug_handler]
 async fn new_prediction(
     State(state): State<Arc<RwLock<Mercado>>>,
-    Json(prediction): Json<NewPredictionRequest>,
+    Json(request): Json<NewPredictionRequest>,
 ) -> Result<(StatusCode, Json<RowId>), (StatusCode, String)> {
-    let backend = state.read().await;
+    let mut backend = state.write().await;
+    let prediction = request;
     let id = backend
         .new_prediction(
             prediction.prediction.clone(),
@@ -49,26 +50,28 @@ async fn new_prediction(
 #[debug_handler]
 async fn accept_nomination(
     State(state): State<Arc<RwLock<Mercado>>>,
-    Json(request): Json<AcceptNominationRequest>,
+    Json(request): Json<PostRequest<AcceptNominationRequest>>,
 ) -> Result<(), (StatusCode, String)> {
     let mut backend = state.write().await;
+    let prediction = request.data;
     backend
-        .accept_nomination(&request.prediction, &request.user)
+        .accept_nomination(&prediction.prediction, &prediction.user, request.access)
         .await
         .map_err(map_any_err_and_code)?;
     debug!(
         "Accepted nomination on prediction {} for user {}",
-        request.prediction, request.user
+        prediction.prediction, prediction.user
     );
     Ok(())
 }
 async fn refuse_nomination(
     State(state): State<Arc<RwLock<Mercado>>>,
-    Json(request): Json<AcceptNominationRequest>,
+    Json(request): Json<PostRequest<AcceptNominationRequest>>,
 ) -> Result<(), (StatusCode, String)> {
     let mut backend = state.write().await;
+    let (request, access) = (request.data, request.access);
     backend
-        .refuse_nomination(&request.prediction, &request.user)
+        .refuse_nomination(&request.prediction, &request.user, access)
         .await
         .map_err(map_any_err_and_code)?;
     debug!(
@@ -79,40 +82,51 @@ async fn refuse_nomination(
 }
 async fn make_decision(
     State(state): State<Arc<RwLock<Mercado>>>,
-    Json(request): Json<MakeDecisionRequest>,
+    Json(request): Json<PostRequest<MakeDecisionRequest>>,
 ) {
     let mut backend = state.write().await;
+    let (request, access) = (request.data, request.access);
     debug!(
         "Voting for {} on prediction {} for judge {}",
         request.decision, request.prediction, request.judge
     );
     backend
-        .make_decision(&request.prediction, &request.judge, request.decision)
+        .make_decision(
+            &request.prediction,
+            &request.judge,
+            request.decision,
+            access,
+        )
         .await
         .unwrap();
 }
 async fn add_bet(
     State(state): State<Arc<RwLock<Mercado>>>,
-    Json(request): Json<AddBetRequest>,
+    Json(request): Json<PostRequest<AddBetRequest>>,
 ) -> (StatusCode, Invoice) {
     let mut backend = state.write().await;
+    let (request, access) = (request.data, request.access);
     debug!(
         "Adding bet on {} and prediction {} for user {}",
         request.bet, request.prediction, request.user
     );
     let invoice = backend
-        .add_bet(&request.prediction, &request.user, request.bet)
+        .add_bet(&request.prediction, &request.user, request.bet, access)
         .await
         .unwrap();
     (StatusCode::CREATED, invoice)
 }
-async fn pay_bet(State(state): State<Arc<RwLock<Mercado>>>, Json(request): Json<PayBetRequest>) {
+async fn pay_bet(
+    State(state): State<Arc<RwLock<Mercado>>>,
+    Json(request): Json<PostRequest<PayBetRequest>>,
+) {
     use api::PayBetRequest;
 
     let mut backend = state.write().await;
+    let (request, access) = (request.data, request.access);
     debug!("Paying bet invoice with {} sats", request.amount);
     let invoice = backend
-        .pay_bet(&request.invoice, request.amount)
+        .pay_bet(&request.invoice, request.amount, access)
         .await
         .unwrap();
 }
@@ -120,11 +134,12 @@ async fn check_bet() {}
 async fn cancel_bet() {}
 async fn cash_out_user(
     State(state): State<Arc<RwLock<Mercado>>>,
-    Json(request): Json<CashOutUserRequest>,
+    Json(request): Json<PostRequest<CashOutUserRequest>>,
 ) -> Json<Sats> {
     let mut backend = state.write().await;
+    let (request, access) = (request.data, request.access);
     let sats = backend
-        .cash_out_user(&request.prediction, &request.user, &request.invoice)
+        .cash_out_user(&request.prediction, &request.user, &request.invoice, access)
         .await
         .unwrap();
     debug!(
@@ -194,14 +209,17 @@ async fn get_user_prediction_bets() {}
 
 async fn force_decision_period(
     State(state): State<Arc<RwLock<Mercado>>>,
-    Json(request): Json<RowId>,
+    Json(request): Json<PostRequest<RowId>>,
 ) {
     let mut backend = state.write().await;
     debug!(
-        "Forcing the end of the decision period for prediction {}",
+        "Forcing the end of the decision period for prediction {:?}",
         request
     );
-    backend.force_decision_period(&request).await.unwrap();
+    backend
+        .force_decision_period(&request.data, request.access)
+        .await
+        .unwrap();
 }
 async fn get_login_challenge(
     State(state): State<Arc<RwLock<Mercado>>>,
@@ -228,17 +246,24 @@ async fn try_login(
     debug!("User {} successfully logged in", request.user);
     Ok(())
 }
+async fn check_login(
+    State(state): State<Arc<RwLock<Mercado>>>,
+    Json(request): Json<AccessRequest>,
+) -> Result<(), (StatusCode, String)> {
+    let mut backend = state.write().await;
+    backend
+        .check_access(request)
+        .await
+        .map_err(|e| (StatusCode::UNAUTHORIZED, map_any_err(e)))?;
+    Ok(())
+}
 async fn update_user(
     State(state): State<Arc<RwLock<Mercado>>>,
     Json(request): Json<PostRequest<UpdateUserRequest>>,
 ) -> Result<(), (StatusCode, String)> {
     let mut backend = state.write().await;
     backend
-        .check_access(request.access.clone())
-        .await
-        .map_err(|e| (StatusCode::UNAUTHORIZED, map_any_err(e)))?;
-    backend
-        .update_user(request.access.user, request.data.username)
+        .update_user(request.access.user, request.data.username, request.access)
         .await
         .map_err(map_any_err_and_code)?;
     Ok(())
@@ -247,7 +272,7 @@ async fn update_user(
 #[derive(Parser)]
 struct Args {
     #[arg(short, long)]
-    admin: Option<String>,
+    admin: Vec<String>,
     #[arg(short, long, default_value_t = 8081)]
     port: u16,
     #[arg(short, long, default_value_t = true)]
@@ -266,11 +291,17 @@ async fn main() -> Result<()> {
     Ok(())
 }
 
-async fn run_server(port: Option<u16>, admin: Option<String>, test: bool) -> (u16, JoinHandle<()>) {
-    let state = Arc::new(RwLock::new(Mercado::new(
-        Box::new(SQLite::new().await),
-        Box::new(TestFundingSource::default()),
-    )));
+async fn run_server(port: Option<u16>, admin: Vec<String>, test: bool) -> (u16, JoinHandle<()>) {
+    let state = Arc::new(RwLock::new(
+        Mercado::new(
+            Box::new(SQLite::new().await),
+            Box::new(TestFundingSource::default()),
+            admin,
+            test,
+        )
+        .await
+        .unwrap(),
+    ));
     let app = Router::new()
         .route("/new_prediction", post(new_prediction))
         .route("/accept_nomination", post(accept_nomination))
@@ -284,15 +315,12 @@ async fn run_server(port: Option<u16>, admin: Option<String>, test: bool) -> (u1
         .route("/get_prediction_judges", post(get_prediction_judges))
         .route("/get_prediction_bets", post(get_prediction_bets))
         .route("/try_login", post(try_login))
+        .route("/check_login", post(check_login))
         .route("/get_login_challenge", post(get_login_challenge))
-        .route("/update_user", post(update_user));
-    let app = if test {
-        app.route("/pay_bet", post(pay_bet))
-            .route("/force_decision_period", post(force_decision_period))
-    } else {
-        app
-    };
-    let app = app.with_state(state);
+        .route("/update_user", post(update_user))
+        .route("/pay_bet", post(pay_bet))
+        .route("/force_decision_period", post(force_decision_period))
+        .with_state(state);
 
     let addr = "127.0.0.1:".to_string() + port.unwrap_or(0).to_string().as_str();
     let server = axum::Server::bind(&addr.parse().unwrap()).serve(app.into_make_service());
@@ -306,15 +334,21 @@ async fn run_server(port: Option<u16>, admin: Option<String>, test: bool) -> (u1
 
 #[cfg(test)]
 mod test {
-    use secp256k1::{generate_keypair, rand};
+    use secp256k1::{ecdsa::Signature, generate_keypair, rand};
 
     use crate::client::Client;
 
     use super::*;
+    fn get_test_access() -> AccessRequest {
+        AccessRequest {
+            user: UserPubKey::from_str("023d51452445aa81ecc3cfcb82dbfe937707db5c89f9f9d21d64835158df405d8c").unwrap(),
+            sig: Signature::from_str("30440220208cef162c7081dafc61004daec32f5a3dadb4c6a1b4c0a479056a4962288d47022069022bc92673f73e9843cea14fa0cc46efa1b1e150339b603444c63035de21ee").unwrap()
+        }
+    }
 
     #[tokio::test]
     async fn new_prediction() {
-        let (port, _) = run_server(None, None, true).await;
+        let (port, _) = run_server(None, vec![], true).await;
         let client = Client::new("http://127.0.0.1:".to_string() + port.to_string().as_str());
 
         let (_, j1) = generate_keypair(&mut rand::thread_rng());
@@ -378,8 +412,9 @@ mod test {
         //     .filter_level(LevelFilter::Debug)
         //     .write_style(WriteStyle::Always)
         //     .init();
-        let (port, _) = run_server(None, None, true).await;
+        let (port, _) = run_server(None, vec![], true).await;
         let client = Client::new("http://127.0.0.1:".to_string() + port.to_string().as_str());
+        let access = get_test_access();
 
         let (_, u1) = generate_keypair(&mut rand::thread_rng());
         let (_, u2) = generate_keypair(&mut rand::thread_rng());
@@ -406,7 +441,7 @@ mod test {
             prediction: prediction_id,
             user: j3,
         };
-        let response = client.refuse_nomination(request).await.unwrap();
+        let response = client.refuse_nomination(request, access).await.unwrap();
 
         // Accept Nomination for 2 judges
         for judge in [j1, j2] {
@@ -414,7 +449,7 @@ mod test {
                 prediction: prediction_id,
                 user: judge,
             };
-            let response = client.accept_nomination(request).await.unwrap();
+            let response = client.accept_nomination(request, access).await.unwrap();
         }
 
         // Add bet for 3 users
@@ -424,16 +459,19 @@ mod test {
                 user,
                 bet: true,
             };
-            let invoice = client.add_bet(request).await.unwrap();
+            let invoice = client.add_bet(request, access).await.unwrap();
             let request = PayBetRequest {
                 invoice,
                 amount: 100,
             };
-            let response = client.pay_bet(request).await.unwrap();
+            let response = client.pay_bet(request, access).await.unwrap();
         }
 
         // Forcing the end of the decision period
-        let response = client.force_decision_period(prediction_id).await.unwrap();
+        let response = client
+            .force_decision_period(prediction_id, access)
+            .await
+            .unwrap();
 
         // Voting for outcomes for 2 judges
         for judge in [j1, j2] {
@@ -442,7 +480,7 @@ mod test {
                 judge,
                 decision: true,
             };
-            let response = client.make_decision(request).await.unwrap();
+            let response = client.make_decision(request, access).await.unwrap();
         }
 
         // Cash out users
@@ -452,7 +490,7 @@ mod test {
                 user,
                 invoice: user.to_string(),
             };
-            let sats = client.cash_out_user(request).await.unwrap();
+            let sats = client.cash_out_user(request, access).await.unwrap();
             assert_eq!(sats, 89);
         }
 
@@ -463,7 +501,7 @@ mod test {
                 user: judge,
                 invoice: judge.to_string(),
             };
-            let sats = client.cash_out_user(request).await.unwrap();
+            let sats = client.cash_out_user(request, access).await.unwrap();
             assert_eq!(sats, 15);
         }
 

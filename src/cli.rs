@@ -58,6 +58,8 @@ enum Commands {
     },
     UpdateUser {
         #[arg(short, long)]
+        user: String,
+        #[arg(short, long)]
         username: Option<String>,
     },
 }
@@ -120,7 +122,8 @@ async fn main() -> Result<()> {
                 prediction: prediction.into(),
                 user: generate_keypair(&mut rand::thread_rng()).1,
             };
-            let invoice = client.add_bet(request).await?;
+            let access = access_request().await?;
+            let invoice = client.add_bet(request, access).await?;
             println!("Invoice: {}", invoice);
         }
         Commands::GenerateKeys => {
@@ -155,12 +158,13 @@ async fn main() -> Result<()> {
             let signature = secret_key.sign_ecdsa(message);
             println!("{}", signature);
         }
-        Commands::UpdateUser { username } => {
-            let request = PostRequest {
-                access: access_request().await?,
-                data: UpdateUserRequest { username },
+        Commands::UpdateUser { user, username } => {
+            let access = access_request().await?;
+            let data = UpdateUserRequest {
+                user: UserPubKey::from_str(user.as_str())?,
+                username,
             };
-            client.update_user(request).await?;
+            client.update_user(data, access).await?;
         }
     }
     Ok(())

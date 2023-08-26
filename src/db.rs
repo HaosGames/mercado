@@ -1,5 +1,5 @@
 use crate::api::*;
-use crate::mercado::Prediction;
+use crate::mercado::{Prediction, UserRole};
 use anyhow::{Context, Ok, Result};
 use async_trait::async_trait;
 use chrono::{DateTime, Duration, TimeZone, Utc};
@@ -72,12 +72,14 @@ pub trait DB {
     async fn get_prediction_judges(&self, prediction: RowId) -> Result<Vec<Judge>>;
     async fn get_prediction_ratio(&self, prediction: RowId) -> Result<(Sats, Sats)>;
 
+    async fn create_user(&self, user: UserPubKey, role: UserRole) -> Result<()>;
     async fn update_login_challenge(&self, user: UserPubKey, challenge: String) -> Result<()>;
     async fn get_login_challenge(&self, user: UserPubKey) -> Result<String>;
     async fn update_access_token(&self, user: UserPubKey, sig: Signature) -> Result<()>;
     async fn update_access(&self, user: UserPubKey) -> Result<()>;
     async fn get_last_access(&self, user: UserPubKey) -> Result<(Signature, DateTime<Utc>)>;
     async fn update_user(&self, user: UserPubKey, name: Option<String>) -> Result<()>;
+    async fn get_user_role(&self, user: UserPubKey) -> Result<UserRole>;
 }
 pub struct SQLite {
     connection: SqlitePool,
@@ -147,6 +149,7 @@ impl SQLite {
                 last_access,\
                 login_challenge,\
                 access_token,\
+                role,\
                 username UNIQUE,\
                 PRIMARY KEY (pubkey)\
                 )",
@@ -775,6 +778,26 @@ impl DB for SQLite {
             .fetch_one(stmt_false.bind(prediction))
             .await?;
         Ok((row_true.get("amount"), row_false.get("amount")))
+    }
+    async fn create_user(&self, user: UserPubKey, role: UserRole) -> Result<()> {
+        let stmt = query(
+            "INSERT OR IGNORE INTO users \
+            (pubkey, role) VALUES \
+            (?, ?)",
+        );
+        self.connection
+            .execute(stmt.bind(user.to_string()).bind(role.to_string()))
+            .await?;
+        Ok(())
+    }
+    async fn get_user_role(&self, user: UserPubKey) -> Result<UserRole> {
+        let stmt = query("SELECT role FROM users WHERE pubkey = ?");
+        let row = self
+            .connection
+            .fetch_one(stmt.bind(user.to_string()))
+            .await?;
+        let role: String = row.get("role");
+        Ok(UserRole::from_str(role.as_str())?)
     }
     async fn update_login_challenge(&self, user: UserPubKey, challenge: String) -> Result<()> {
         let stmt = query(
