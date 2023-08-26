@@ -83,7 +83,7 @@ async fn refuse_nomination(
 async fn make_decision(
     State(state): State<Arc<RwLock<Mercado>>>,
     Json(request): Json<PostRequest<MakeDecisionRequest>>,
-) {
+) -> Result<(), (StatusCode, String)> {
     let mut backend = state.write().await;
     let (request, access) = (request.data, request.access);
     debug!(
@@ -98,12 +98,13 @@ async fn make_decision(
             access,
         )
         .await
-        .unwrap();
+        .map_err(map_any_err_and_code)?;
+    Ok(())
 }
 async fn add_bet(
     State(state): State<Arc<RwLock<Mercado>>>,
     Json(request): Json<PostRequest<AddBetRequest>>,
-) -> (StatusCode, Invoice) {
+) -> Result<(StatusCode, Invoice), (StatusCode, Invoice)> {
     let mut backend = state.write().await;
     let (request, access) = (request.data, request.access);
     debug!(
@@ -113,13 +114,13 @@ async fn add_bet(
     let invoice = backend
         .add_bet(&request.prediction, &request.user, request.bet, access)
         .await
-        .unwrap();
-    (StatusCode::CREATED, invoice)
+        .map_err(map_any_err_and_code)?;
+    Ok((StatusCode::CREATED, invoice))
 }
 async fn pay_bet(
     State(state): State<Arc<RwLock<Mercado>>>,
     Json(request): Json<PostRequest<PayBetRequest>>,
-) {
+) -> Result<(), (StatusCode, String)> {
     use api::PayBetRequest;
 
     let mut backend = state.write().await;
@@ -128,25 +129,26 @@ async fn pay_bet(
     let invoice = backend
         .pay_bet(&request.invoice, request.amount, access)
         .await
-        .unwrap();
+        .map_err(map_any_err_and_code)?;
+    Ok(())
 }
 async fn check_bet() {}
 async fn cancel_bet() {}
 async fn cash_out_user(
     State(state): State<Arc<RwLock<Mercado>>>,
     Json(request): Json<PostRequest<CashOutUserRequest>>,
-) -> Json<Sats> {
+) -> Result<Json<Sats>, (StatusCode, String)> {
     let mut backend = state.write().await;
     let (request, access) = (request.data, request.access);
     let sats = backend
         .cash_out_user(&request.prediction, &request.user, &request.invoice, access)
         .await
-        .unwrap();
+        .map_err(map_any_err_and_code)?;
     debug!(
         "Cashed out {} sats for user {} on prediction {}",
         sats, request.user, request.prediction
     );
-    Json(sats)
+    Ok(Json(sats))
 }
 
 async fn get_predictions(
@@ -210,7 +212,7 @@ async fn get_user_prediction_bets() {}
 async fn force_decision_period(
     State(state): State<Arc<RwLock<Mercado>>>,
     Json(request): Json<PostRequest<RowId>>,
-) {
+) -> Result<(), (StatusCode, String)> {
     let mut backend = state.write().await;
     debug!(
         "Forcing the end of the decision period for prediction {:?}",
@@ -219,7 +221,8 @@ async fn force_decision_period(
     backend
         .force_decision_period(&request.data, request.access)
         .await
-        .unwrap();
+        .map_err(map_any_err_and_code)?;
+    Ok(())
 }
 async fn get_login_challenge(
     State(state): State<Arc<RwLock<Mercado>>>,
