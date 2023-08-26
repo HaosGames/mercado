@@ -52,6 +52,10 @@ enum Commands {
     },
     GenerateKeys,
     Login,
+    SignEcdsa {
+        #[arg(short, long)]
+        message: String,
+    },
     UpdateUser {
         #[arg(short, long)]
         username: Option<String>,
@@ -144,6 +148,12 @@ async fn main() -> Result<()> {
             };
             client.try_login(request).await?;
             println!("Logged in as {}", user);
+        }
+        Commands::SignEcdsa { message } => {
+            let message = Message::from_hashed_data::<Hash>(message.as_bytes());
+            let secret_key = read_secret().await?;
+            let signature = secret_key.sign_ecdsa(message);
+            println!("{}", signature);
         }
         Commands::UpdateUser { username } => {
             let request = PostRequest {
