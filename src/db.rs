@@ -81,7 +81,7 @@ pub trait DB {
     async fn update_user(&self, user: UserPubKey, name: Option<String>) -> Result<()>;
     async fn get_user_role(&self, user: UserPubKey) -> Result<UserRole>;
     async fn create_user(&self, user: UserPubKey) -> Result<()>;
-    async fn get_usernames(&self, user: Vec<UserPubKey>) -> Result<HashMap<UserPubKey, String>>;
+    async fn get_username(&self, user: UserPubKey) -> Result<String>;
 }
 pub struct SQLite {
     connection: SqlitePool,
@@ -892,16 +892,12 @@ impl DB for SQLite {
         self.connection.execute(stmt.bind(user.to_string())).await?;
         Ok(())
     }
-    async fn get_usernames(&self, users: Vec<UserPubKey>) -> Result<HashMap<UserPubKey, String>> {
-        let mut names = HashMap::new();
-        for user in users {
-            let stmt = query("SELECT username FROM users WHERE pubkey = ?");
-            let row = self
-                .connection
-                .fetch_one(stmt.bind(user.to_string()))
-                .await?;
-            names.insert(user, row.get("username"));
-        }
-        Ok(names)
+    async fn get_username(&self, user: UserPubKey) -> Result<String> {
+        let stmt = query("SELECT username FROM users WHERE pubkey = ?");
+        let row = self
+            .connection
+            .fetch_one(stmt.bind(user.to_string()))
+            .await?;
+        Ok(row.get("username"))
     }
 }

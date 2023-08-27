@@ -272,16 +272,16 @@ async fn update_user(
         .map_err(map_any_err_and_code)?;
     Ok(())
 }
-async fn get_usernames(
+async fn get_username(
     State(state): State<Arc<RwLock<Mercado>>>,
-    Json(request): Json<Vec<UserPubKey>>,
-) -> Result<Json<HashMap<UserPubKey, String>>, (StatusCode, String)> {
+    Json(request): Json<UserPubKey>,
+) -> Result<String, (StatusCode, String)> {
     let backend = state.read().await;
-    let usernames = backend
-        .get_usernames(request)
+    let username = backend
+        .get_username(request)
         .await
         .map_err(map_any_err_and_code)?;
-    Ok(Json(usernames))
+    Ok(username)
 }
 
 #[derive(Parser)]
@@ -335,7 +335,7 @@ async fn run_server(port: Option<u16>, admin: Vec<String>, test: bool) -> (u16, 
         .route("/update_user", post(update_user))
         .route("/pay_bet", post(pay_bet))
         .route("/force_decision_period", post(force_decision_period))
-        .route("/get_usernames", post(get_usernames))
+        .route("/get_username", post(get_username))
         .with_state(state);
 
     let addr = "127.0.0.1:".to_string() + port.unwrap_or(0).to_string().as_str();

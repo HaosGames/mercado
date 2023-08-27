@@ -1,5 +1,3 @@
-use std::collections::HashMap;
-
 use anyhow::{bail, Ok, Result};
 use reqwest::{Response, StatusCode};
 use serde::Serialize;
@@ -210,12 +208,9 @@ impl Client {
         .await?;
         Ok(())
     }
-    pub async fn get_usernames(
-        &self,
-        users: Vec<UserPubKey>,
-    ) -> Result<HashMap<UserPubKey, String>> {
-        let response = self.post("/get_usernames", users, StatusCode::OK).await?;
-        Ok(response.json::<HashMap<UserPubKey, String>>().await?)
+    pub async fn get_username(&self, user: UserPubKey) -> Result<String> {
+        let response = self.post("/get_username", user, StatusCode::OK).await?;
+        Ok(response.text().await?)
     }
 }
 
