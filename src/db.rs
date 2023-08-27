@@ -72,7 +72,7 @@ pub trait DB {
     async fn get_prediction_judges(&self, prediction: RowId) -> Result<Vec<Judge>>;
     async fn get_prediction_ratio(&self, prediction: RowId) -> Result<(Sats, Sats)>;
 
-    async fn create_user(&self, user: UserPubKey, role: UserRole) -> Result<()>;
+    async fn update_user_role(&self, user: UserPubKey, role: UserRole) -> Result<()>;
     async fn update_login_challenge(&self, user: UserPubKey, challenge: String) -> Result<()>;
     async fn get_login_challenge(&self, user: UserPubKey) -> Result<String>;
     async fn update_access_token(&self, user: UserPubKey, sig: Signature) -> Result<()>;
@@ -80,6 +80,7 @@ pub trait DB {
     async fn get_last_access(&self, user: UserPubKey) -> Result<(Signature, DateTime<Utc>)>;
     async fn update_user(&self, user: UserPubKey, name: Option<String>) -> Result<()>;
     async fn get_user_role(&self, user: UserPubKey) -> Result<UserRole>;
+    async fn create_user(&self, user: UserPubKey) -> Result<()>;
 }
 pub struct SQLite {
     connection: SqlitePool,
@@ -149,7 +150,7 @@ impl SQLite {
                 last_access,\
                 login_challenge,\
                 access_token,\
-                role,\
+                role DEFAULT User,\
                 username UNIQUE,\
                 PRIMARY KEY (pubkey)\
                 )",
@@ -779,14 +780,15 @@ impl DB for SQLite {
             .await?;
         Ok((row_true.get("amount"), row_false.get("amount")))
     }
-    async fn create_user(&self, user: UserPubKey, role: UserRole) -> Result<()> {
+    async fn update_user_role(&self, user: UserPubKey, role: UserRole) -> Result<()> {
+        self.create_user(user).await?;
         let stmt = query(
-            "INSERT OR IGNORE INTO users \
-            (pubkey, role) VALUES \
-            (?, ?)",
+            "UPDATE users SET \
+            role = ?\
+            WHERE pubkey = ?",
         );
         self.connection
-            .execute(stmt.bind(user.to_string()).bind(role.to_string()))
+            .execute(stmt.bind(role.to_string()).bind(user.to_string()))
             .await?;
         Ok(())
     }
@@ -800,13 +802,14 @@ impl DB for SQLite {
         Ok(UserRole::from_str(role.as_str())?)
     }
     async fn update_login_challenge(&self, user: UserPubKey, challenge: String) -> Result<()> {
+        self.create_user(user).await?;
         let stmt = query(
-            "INSERT OR REPLACE INTO users \
-            (pubkey, login_challenge) VALUES \
-            (?, ?)",
+            "UPDATE users SET \
+            login_challenge = ? \
+            WHERE pubkey = ?",
         );
         self.connection
-            .execute(stmt.bind(user.to_string()).bind(challenge))
+            .execute(stmt.bind(challenge).bind(user.to_string()))
             .await?;
         Ok(())
     }
@@ -833,7 +836,7 @@ impl DB for SQLite {
         self.connection
             .execute(
                 stmt.bind(sig.to_string())
-                    .bind(Utc::now())
+                    .bind(Utc::now().timestamp())
                     .bind(user.to_string()),
             )
             .await?;
@@ -846,7 +849,7 @@ impl DB for SQLite {
             WHERE pubkey = ?",
         );
         self.connection
-            .execute(stmt.bind(Utc::now()).bind(user.to_string()))
+            .execute(stmt.bind(Utc::now().timestamp()).bind(user.to_string()))
             .await?;
         Ok(())
     }
@@ -862,7 +865,10 @@ impl DB for SQLite {
             .await?;
         let token: String = row.get("access_token");
         let last_access = row.get("last_access");
-        Ok((Signature::from_str(token.as_str())?, last_access))
+        Ok((
+            Signature::from_str(token.as_str())?,
+            Utc.timestamp_opt(last_access, 0).unwrap(),
+        ))
     }
     async fn update_user(&self, user: UserPubKey, name: Option<String>) -> Result<()> {
         if let Some(name) = name {
@@ -875,6 +881,14 @@ impl DB for SQLite {
                 .execute(stmt.bind(name).bind(user.to_string()))
                 .await?;
         }
+        Ok(())
+    }
+    async fn create_user(&self, user: UserPubKey) -> Result<()> {
+        let stmt = query(
+            "INSERT OR IGNORE INTO users \
+            (pubkey) VALUES (?)",
+        );
+        self.connection.execute(stmt.bind(user.to_string())).await?;
         Ok(())
     }
 }

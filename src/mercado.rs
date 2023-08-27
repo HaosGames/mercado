@@ -144,6 +144,11 @@ impl FromStr for UserRole {
         }
     }
 }
+impl Default for UserRole {
+    fn default() -> Self {
+        UserRole::User
+    }
+}
 impl Mercado {
     pub async fn new(
         db: Box<dyn DB + Send + Sync>,
@@ -158,7 +163,7 @@ impl Mercado {
         };
         for admin in admins {
             me.db
-                .create_user(UserPubKey::from_str(admin.as_str())?, UserRole::Root)
+                .update_user_role(UserPubKey::from_str(admin.as_str())?, UserRole::Root)
                 .await?;
         }
         Ok(me)
@@ -756,7 +761,6 @@ impl Mercado {
         Ok(role)
     }
     pub async fn get_login_challenge(&mut self, user: UserPubKey) -> Result<String> {
-        self.db.create_user(user, UserRole::User).await?;
         let challenge: String = rand::thread_rng()
             .sample_iter(&Alphanumeric)
             .take(30)
