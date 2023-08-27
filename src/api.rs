@@ -42,7 +42,7 @@ pub struct NewPredictionRequest {
     pub judge_count: u32,
 }
 #[derive(Debug, Serialize, Deserialize, Clone)]
-pub struct AcceptNominationRequest {
+pub struct NominationRequest {
     pub prediction: RowId,
     pub user: UserPubKey,
 }
@@ -56,6 +56,11 @@ pub struct AddBetRequest {
 pub struct PayBetRequest {
     pub invoice: Invoice,
     pub amount: Sats,
+}
+#[derive(Debug, Serialize, Deserialize)]
+pub struct CancelBetRequest {
+    pub invoice: Invoice,
+    pub refund_invoice: Invoice,
 }
 #[derive(Debug, Serialize, Deserialize)]
 pub struct MakeDecisionRequest {
@@ -120,6 +125,11 @@ pub struct Judge {
     pub user: UserPubKey,
     pub prediction: RowId,
     pub state: JudgeState,
+}
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct JudgePublic {
+    pub user: UserPubKey,
+    pub prediction: RowId,
 }
 #[derive(PartialEq, Debug, Clone, Serialize, Deserialize)]
 pub enum JudgeState {

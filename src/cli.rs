@@ -35,6 +35,26 @@ enum Commands {
         #[arg(short, long)]
         share_ppm: u32,
     },
+    AcceptNomination {
+        #[arg(short, long)]
+        prediction: RowId,
+        #[arg(short, long)]
+        judge: UserPubKey,
+    },
+    RefuseNomination {
+        #[arg(short, long)]
+        prediction: RowId,
+        #[arg(short, long)]
+        judge: UserPubKey,
+    },
+    MakeDecision {
+        #[arg(short, long)]
+        prediction: RowId,
+        #[arg(short, long)]
+        judge: UserPubKey,
+        #[arg(short, long)]
+        decision_true: bool,
+    },
     GetPredictions,
     GetPrediction {
         #[arg(short, long)]
@@ -44,11 +64,25 @@ enum Commands {
     },
     AddBet {
         #[arg(short, long)]
-        bet: bool,
+        bet_true: bool,
         #[arg(short, long)]
         amount: u32,
         #[arg(short, long)]
         prediction: u32,
+        #[arg(short, long)]
+        pay: bool,
+    },
+    PayBet {
+        #[arg(short, long)]
+        invoice: Invoice,
+        #[arg(short, long)]
+        amount: Sats,
+    },
+    CancelBet {
+        #[arg(short, long)]
+        invoice: Invoice,
+        #[arg(short, long)]
+        refund_invoice: Invoice,
     },
     GenerateKeys,
     Login,
@@ -92,6 +126,36 @@ async fn main() -> Result<()> {
             let response = client.new_prediction(request).await;
             println!("{}: {}", response.status(), response.text().await.unwrap());
         }
+        Commands::AcceptNomination { prediction, judge } => {
+            let request = NominationRequest {
+                prediction,
+                user: judge,
+            };
+            client
+                .accept_nomination(request, get_access().await?)
+                .await?;
+        }
+        Commands::RefuseNomination { prediction, judge } => {
+            let request = NominationRequest {
+                prediction,
+                user: judge,
+            };
+            client
+                .refuse_nomination(request, get_access().await?)
+                .await?;
+        }
+        Commands::MakeDecision {
+            prediction,
+            judge,
+            decision_true,
+        } => {
+            let request = MakeDecisionRequest {
+                prediction,
+                judge,
+                decision: decision_true,
+            };
+            client.make_decision(request, get_access().await?).await?;
+        }
         Commands::GetPredictions => {
             let response = client.get_predictions().await?;
             println!("{:#?}", response);
@@ -115,18 +179,37 @@ async fn main() -> Result<()> {
             println!("Bets: {:#?}", response);
         }
         Commands::AddBet {
-            bet,
+            bet_true,
             amount,
             prediction,
+            pay,
         } => {
             let request = AddBetRequest {
-                bet,
+                bet: bet_true,
                 prediction: prediction.into(),
                 user: generate_keypair(&mut rand::thread_rng()).1,
             };
-            let access = access_request().await?;
+            let access = get_access().await?;
             let invoice = client.add_bet(request, access).await?;
             println!("Invoice: {}", invoice);
+            let pay_request = PayBetRequest { invoice, amount };
+            client.pay_bet(pay_request, access).await?;
+            println!("Payed bet with {} sats", amount);
+        }
+        Commands::PayBet { invoice, amount } => {
+            let pay_request = PayBetRequest { invoice, amount };
+            client.pay_bet(pay_request, get_access().await?).await?;
+            println!("Payed bet with {} sats", amount);
+        }
+        Commands::CancelBet {
+            invoice,
+            refund_invoice,
+        } => {
+            let request = CancelBetRequest {
+                invoice,
+                refund_invoice,
+            };
+            client.cancel_bet(request, get_access().await?).await?;
         }
         Commands::GenerateKeys => {
             let keys = generate_keypair(&mut rand::thread_rng());
@@ -161,7 +244,7 @@ async fn main() -> Result<()> {
             println!("{}", signature);
         }
         Commands::UpdateUser { user, username } => {
-            let access = access_request().await?;
+            let access = get_access().await?;
             let data = UpdateUserRequest {
                 user: UserPubKey::from_str(user.as_str())?,
                 username,
@@ -171,7 +254,7 @@ async fn main() -> Result<()> {
     }
     Ok(())
 }
-async fn access_request() -> Result<AccessRequest> {
+async fn get_access() -> Result<AccessRequest> {
     let user = read_public().await?;
     let sig = read_token().await?;
     Ok(AccessRequest { user, sig })

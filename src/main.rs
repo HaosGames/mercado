@@ -51,7 +51,7 @@ async fn new_prediction(
 #[debug_handler]
 async fn accept_nomination(
     State(state): State<Arc<RwLock<Mercado>>>,
-    Json(request): Json<PostRequest<AcceptNominationRequest>>,
+    Json(request): Json<PostRequest<NominationRequest>>,
 ) -> Result<(), (StatusCode, String)> {
     let mut backend = state.write().await;
     let prediction = request.data;
@@ -67,7 +67,7 @@ async fn accept_nomination(
 }
 async fn refuse_nomination(
     State(state): State<Arc<RwLock<Mercado>>>,
-    Json(request): Json<PostRequest<AcceptNominationRequest>>,
+    Json(request): Json<PostRequest<NominationRequest>>,
 ) -> Result<(), (StatusCode, String)> {
     let mut backend = state.write().await;
     let (request, access) = (request.data, request.access);
@@ -122,8 +122,6 @@ async fn pay_bet(
     State(state): State<Arc<RwLock<Mercado>>>,
     Json(request): Json<PostRequest<PayBetRequest>>,
 ) -> Result<(), (StatusCode, String)> {
-    use api::PayBetRequest;
-
     let mut backend = state.write().await;
     let (request, access) = (request.data, request.access);
     debug!("Paying bet invoice with {} sats", request.amount);
@@ -133,8 +131,20 @@ async fn pay_bet(
         .map_err(map_any_err_and_code)?;
     Ok(())
 }
+async fn cancel_bet(
+    State(state): State<Arc<RwLock<Mercado>>>,
+    Json(request): Json<PostRequest<CancelBetRequest>>,
+) -> Result<(), (StatusCode, String)> {
+    let mut backend = state.write().await;
+    let (request, access) = (request.data, request.access);
+    let invoice = backend
+        .cancel_bet(&request.invoice, &request.refund_invoice, access)
+        .await
+        .map_err(map_any_err_and_code)?;
+    Ok(())
+}
+
 async fn check_bet() {}
-async fn cancel_bet() {}
 async fn cash_out_user(
     State(state): State<Arc<RwLock<Mercado>>>,
     Json(request): Json<PostRequest<CashOutUserRequest>>,
@@ -334,6 +344,7 @@ async fn run_server(port: Option<u16>, admin: Vec<String>, test: bool) -> (u16, 
         .route("/get_login_challenge", post(get_login_challenge))
         .route("/update_user", post(update_user))
         .route("/pay_bet", post(pay_bet))
+        .route("/cancel_bet", post(cancel_bet))
         .route("/force_decision_period", post(force_decision_period))
         .route("/get_username", post(get_username))
         .with_state(state);
@@ -453,7 +464,7 @@ mod test {
         let prediction_id = response.json::<RowId>().await.unwrap();
 
         // Refuse Nomination for 1 judge
-        let request = AcceptNominationRequest {
+        let request = NominationRequest {
             prediction: prediction_id,
             user: j3,
         };
@@ -461,7 +472,7 @@ mod test {
 
         // Accept Nomination for 2 judges
         for judge in [j1, j2] {
-            let request = AcceptNominationRequest {
+            let request = NominationRequest {
                 prediction: prediction_id,
                 user: judge,
             };

@@ -379,7 +379,7 @@ impl Mercado {
             // Calculate judges
             let mut judge_cash_out_amount = 0;
             let judge_outcome_count = self.get_outcome_judge_count(&prediction).await?;
-            for (judge, state) in self.db.get_judges(&prediction).await? {
+            for (judge, state) in self.db.get_prediction_judges_mapped(&prediction).await? {
                 if let JudgeState::Resolved(decision) = state {
                     if decision == outcome {
                         let cash_out = Self::calculate_judge_cash_out(
@@ -804,6 +804,43 @@ impl Mercado {
     }
     pub async fn get_username(&self, user: UserPubKey) -> Result<String> {
         self.db.get_username(user).await
+    }
+    pub async fn get_judges(
+        &self,
+        prediction: Option<RowId>,
+        user: Option<UserPubKey>,
+    ) -> Result<Vec<JudgePublic>> {
+        self.db.get_judges(prediction, user).await
+    }
+    pub async fn get_judge(
+        &self,
+        prediction: RowId,
+        user: UserPubKey,
+        access: AccessRequest,
+    ) -> Result<Judge> {
+        self.check_access_for_user(user, access).await?;
+        let state = self.db.get_judge_state(prediction, &user).await?;
+        Ok(Judge {
+            user,
+            prediction,
+            state,
+        })
+    }
+    pub async fn get_bets(
+        &self,
+        prediction: Option<RowId>,
+        user: Option<UserPubKey>,
+        access: AccessRequest,
+    ) -> Result<Vec<Bet>> {
+        if let Some(user) = user {
+            self.check_access_for_user(user, access).await?;
+        } else {
+            if let UserRole::User = self.check_access(access).await? {
+                bail!("Access Denied: Getting bets of users is prohibited");
+            }
+        }
+        let bets = self.db.get_bets(prediction, user).await?;
+        Ok(bets)
     }
 }
 

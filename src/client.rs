@@ -41,7 +41,7 @@ impl Client {
     }
     pub async fn accept_nomination(
         &self,
-        request: AcceptNominationRequest,
+        request: NominationRequest,
         access: AccessRequest,
     ) -> Result<()> {
         self.post(
@@ -57,7 +57,7 @@ impl Client {
     }
     pub async fn refuse_nomination(
         &self,
-        request: AcceptNominationRequest,
+        request: NominationRequest,
         access: AccessRequest,
     ) -> Result<()> {
         self.post(
@@ -113,7 +113,18 @@ impl Client {
         Ok(())
     }
     pub async fn check_bet(&self) {}
-    pub async fn cancel_bet(&self) {}
+    pub async fn cancel_bet(&self, request: CancelBetRequest, access: AccessRequest) -> Result<()> {
+        self.post(
+            "/cancel_bet",
+            PostRequest {
+                data: request,
+                access,
+            },
+            StatusCode::OK,
+        )
+        .await?;
+        Ok(())
+    }
     pub async fn cash_out_user(
         &self,
         request: CashOutUserRequest,

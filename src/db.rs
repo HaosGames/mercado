@@ -22,7 +22,10 @@ pub trait DB {
     ) -> Result<()>;
     async fn get_trading_end(&self, prediction: &RowId) -> Result<DateTime<Utc>>;
     async fn get_decision_period(&self, prediction: &RowId) -> Result<Duration>;
-    async fn get_judges(&self, prediction: &RowId) -> Result<HashMap<UserPubKey, JudgeState>>;
+    async fn get_prediction_judges_mapped(
+        &self,
+        prediction: &RowId,
+    ) -> Result<HashMap<UserPubKey, JudgeState>>;
     async fn get_judge_states(&self, prediction: &RowId) -> Result<Vec<JudgeState>>;
     async fn set_cash_out(
         &self,
@@ -82,6 +85,16 @@ pub trait DB {
     async fn get_user_role(&self, user: UserPubKey) -> Result<UserRole>;
     async fn create_user(&self, user: UserPubKey) -> Result<()>;
     async fn get_username(&self, user: UserPubKey) -> Result<String>;
+    async fn get_judges(
+        &self,
+        prediction: Option<RowId>,
+        user: Option<UserPubKey>,
+    ) -> Result<Vec<JudgePublic>>;
+    async fn get_bets(
+        &self,
+        prediction: Option<RowId>,
+        user: Option<UserPubKey>,
+    ) -> Result<Vec<Bet>>;
 }
 pub struct SQLite {
     connection: SqlitePool,
@@ -361,7 +374,10 @@ impl DB for SQLite {
             .get(0);
         Ok(Duration::seconds(decision_period))
     }
-    async fn get_judges(&self, prediction: &RowId) -> Result<HashMap<UserPubKey, JudgeState>> {
+    async fn get_prediction_judges_mapped(
+        &self,
+        prediction: &RowId,
+    ) -> Result<HashMap<UserPubKey, JudgeState>> {
         let mut judges = HashMap::default();
         let statement = query(
             "SELECT user, state, decision FROM judges \
@@ -386,7 +402,7 @@ impl DB for SQLite {
     }
     async fn get_judge_states(&self, prediction: &RowId) -> Result<Vec<JudgeState>> {
         Ok(self
-            .get_judges(prediction)
+            .get_prediction_judges_mapped(prediction)
             .await?
             .values()
             .cloned()
@@ -652,13 +668,40 @@ impl DB for SQLite {
         }
         Ok(aggregated_bets)
     }
-    async fn get_prediction_bets(&self, prediction: RowId) -> Result<Vec<Bet>> {
-        let stmt = query(
+    async fn get_bets(
+        &self,
+        prediction: Option<RowId>,
+        user: Option<UserPubKey>,
+    ) -> Result<Vec<Bet>> {
+        let mut stmt = String::from(
             "SELECT user, prediction, bet, amount, state, refund_invoice, fund_invoice \
-                FROM bets WHERE prediction = ?",
+                FROM bets ",
         );
+        match (prediction, user) {
+            (None, None) => {}
+            (Some(prediction), None) => stmt = stmt + "WHERE prediction = ?",
+            (None, Some(user)) => stmt = stmt + "WHERE user = ?",
+            (Some(prediction), Some(user)) => stmt = stmt + "WHERE prediction = ? AND user = ?",
+        }
+        let rows = match (prediction, user) {
+            (None, None) => self.connection.fetch_all(query(stmt.as_str())).await?,
+            (Some(prediction), None) => {
+                self.connection
+                    .fetch_all(query(stmt.as_str()).bind(prediction))
+                    .await?
+            }
+            (None, Some(user)) => {
+                self.connection
+                    .fetch_all(query(stmt.as_str()).bind(user.to_string()))
+                    .await?
+            }
+            (Some(prediction), Some(user)) => {
+                self.connection
+                    .fetch_all(query(stmt.as_str()).bind(prediction).bind(user.to_string()))
+                    .await?
+            }
+        };
         let mut bets = Vec::new();
-        let rows = self.connection.fetch_all(stmt.bind(prediction)).await?;
         for row in rows {
             let user = UserPubKey::from_str(row.get("user")).unwrap();
             let prediction = row.get("prediction");
@@ -686,6 +729,9 @@ impl DB for SQLite {
             });
         }
         Ok(bets)
+    }
+    async fn get_prediction_bets(&self, prediction: RowId) -> Result<Vec<Bet>> {
+        self.get_bets(Some(prediction), None).await
     }
     async fn get_predictions(&self) -> Result<HashMap<RowId, PredictionOverviewResponse>> {
         let stmt = query(
@@ -899,5 +945,44 @@ impl DB for SQLite {
             .fetch_one(stmt.bind(user.to_string()))
             .await?;
         Ok(row.get("username"))
+    }
+    async fn get_judges(
+        &self,
+        prediction: Option<RowId>,
+        user: Option<UserPubKey>,
+    ) -> Result<Vec<JudgePublic>> {
+        let mut stmt = String::from("SELECT user, prediction FROM judges ");
+        match (prediction, user) {
+            (None, None) => {}
+            (Some(prediction), None) => stmt = stmt + "WHERE prediction = ?",
+            (None, Some(user)) => stmt = stmt + "WHERE user = ?",
+            (Some(prediction), Some(user)) => stmt = stmt + "WHERE prediction = ? AND user = ?",
+        }
+        let rows = match (prediction, user) {
+            (None, None) => self.connection.fetch_all(query(stmt.as_str())).await?,
+            (Some(prediction), None) => {
+                self.connection
+                    .fetch_all(query(stmt.as_str()).bind(prediction))
+                    .await?
+            }
+            (None, Some(user)) => {
+                self.connection
+                    .fetch_all(query(stmt.as_str()).bind(user.to_string()))
+                    .await?
+            }
+            (Some(prediction), Some(user)) => {
+                self.connection
+                    .fetch_all(query(stmt.as_str()).bind(prediction).bind(user.to_string()))
+                    .await?
+            }
+        };
+        let judges = rows
+            .into_iter()
+            .map(|row| JudgePublic {
+                user: UserPubKey::from_str(row.get("user")).unwrap(),
+                prediction: row.get("prediction"),
+            })
+            .collect();
+        Ok(judges)
     }
 }
