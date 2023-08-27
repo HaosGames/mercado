@@ -802,6 +802,12 @@ impl Mercado {
         }
         Ok(())
     }
+    pub async fn get_usernames(
+        &self,
+        user: Vec<UserPubKey>,
+    ) -> Result<HashMap<UserPubKey, String>> {
+        self.db.get_usernames(user).await
+    }
 }
 
 #[derive(Error, Debug)]

@@ -15,6 +15,7 @@ use clap::Parser;
 use env_logger::{Builder, WriteStyle};
 use log::trace;
 use log::{debug, LevelFilter};
+use std::collections::HashMap;
 use std::str::FromStr;
 use std::sync::Arc;
 use tokio::sync::RwLock;
@@ -271,6 +272,17 @@ async fn update_user(
         .map_err(map_any_err_and_code)?;
     Ok(())
 }
+async fn get_usernames(
+    State(state): State<Arc<RwLock<Mercado>>>,
+    Json(request): Json<Vec<UserPubKey>>,
+) -> Result<Json<HashMap<UserPubKey, String>>, (StatusCode, String)> {
+    let backend = state.read().await;
+    let usernames = backend
+        .get_usernames(request)
+        .await
+        .map_err(map_any_err_and_code)?;
+    Ok(Json(usernames))
+}
 
 #[derive(Parser)]
 struct Args {
@@ -323,6 +335,7 @@ async fn run_server(port: Option<u16>, admin: Vec<String>, test: bool) -> (u16, 
         .route("/update_user", post(update_user))
         .route("/pay_bet", post(pay_bet))
         .route("/force_decision_period", post(force_decision_period))
+        .route("/get_usernames", post(get_usernames))
         .with_state(state);
 
     let addr = "127.0.0.1:".to_string() + port.unwrap_or(0).to_string().as_str();
