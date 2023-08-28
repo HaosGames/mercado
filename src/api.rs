@@ -130,6 +130,17 @@ pub enum BetState {
     RefundInit,
     Refunded,
 }
+impl Display for BetState {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        let output = match self {
+            Self::FundInit => "FundInit",
+            Self::Funded => "Funded",
+            Self::RefundInit => "RefundInit",
+            Self::Refunded => "Refunded",
+        };
+        write!(f, "{}", output)
+    }
+}
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Judge {
     pub user: UserPubKey,

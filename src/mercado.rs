@@ -105,17 +105,6 @@ impl FromStr for BetState {
         }
     }
 }
-impl Display for BetState {
-    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        let output = match self {
-            Self::FundInit => "FundInit",
-            Self::Funded => "Funded",
-            Self::RefundInit => "RefundInit",
-            Self::Refunded => "Refunded",
-        };
-        write!(f, "{}", output)
-    }
-}
 #[derive(Debug)]
 pub enum UserRole {
     User,
