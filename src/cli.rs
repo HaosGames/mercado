@@ -71,6 +71,8 @@ enum Commands {
         prediction: u32,
         #[arg(long)]
         pay: bool,
+        #[arg(short, long)]
+        user: UserPubKey,
     },
     PayBet {
         #[arg(short, long)]
@@ -183,11 +185,12 @@ async fn main() -> Result<()> {
             amount,
             prediction,
             pay,
+            user,
         } => {
             let request = AddBetRequest {
                 bet: bet_true,
                 prediction: prediction.into(),
-                user: generate_keypair(&mut rand::thread_rng()).1,
+                user,
             };
             let access = get_access().await?;
             let invoice = client.add_bet(request, access).await?;
