@@ -293,6 +293,39 @@ async fn get_username(
         .map_err(map_any_err_and_code)?;
     Ok(username)
 }
+async fn get_judges(
+    State(state): State<Arc<RwLock<Mercado>>>,
+    Json(request): Json<PredictionUserRequest>,
+) -> Result<Json<Vec<JudgePublic>>, (StatusCode, String)> {
+    let backend = state.read().await;
+    let judges = backend
+        .get_judges(request.prediction, request.user)
+        .await
+        .map_err(map_any_err_and_code)?;
+    Ok(Json(judges))
+}
+async fn get_judge(
+    State(state): State<Arc<RwLock<Mercado>>>,
+    Json(request): Json<PostRequest<JudgeRequest>>,
+) -> Result<Json<Judge>, (StatusCode, String)> {
+    let backend = state.read().await;
+    let judge = backend
+        .get_judge(request.data.prediction, request.data.user, request.access)
+        .await
+        .map_err(map_any_err_and_code)?;
+    Ok(Json(judge))
+}
+async fn get_bets(
+    State(state): State<Arc<RwLock<Mercado>>>,
+    Json(request): Json<PostRequest<PredictionUserRequest>>,
+) -> Result<Json<Vec<Bet>>, (StatusCode, String)> {
+    let backend = state.read().await;
+    let bets = backend
+        .get_bets(request.data.prediction, request.data.user, request.access)
+        .await
+        .map_err(map_any_err_and_code)?;
+    Ok(Json(bets))
+}
 
 #[derive(Parser)]
 struct Args {
@@ -347,6 +380,9 @@ async fn run_server(port: Option<u16>, admin: Vec<String>, test: bool) -> (u16, 
         .route("/cancel_bet", post(cancel_bet))
         .route("/force_decision_period", post(force_decision_period))
         .route("/get_username", post(get_username))
+        .route("/get_judges", post(get_judges))
+        .route("/get_judge", post(get_judge))
+        .route("/get_bets", post(get_bets))
         .with_state(state);
 
     let addr = "127.0.0.1:".to_string() + port.unwrap_or(0).to_string().as_str();

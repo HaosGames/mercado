@@ -4,6 +4,7 @@ use serde::Serialize;
 
 use crate::api::*;
 
+#[derive(Debug)]
 pub struct Client {
     url: String,
     client: reqwest::Client,
@@ -222,6 +223,40 @@ impl Client {
     pub async fn get_username(&self, user: UserPubKey) -> Result<String> {
         let response = self.post("/get_username", user, StatusCode::OK).await?;
         Ok(response.text().await?)
+    }
+    pub async fn get_judges(&self, request: PredictionUserRequest) -> Result<Vec<JudgePublic>> {
+        let response = self.post("/get_judges", request, StatusCode::OK).await?;
+        Ok(response.json::<Vec<JudgePublic>>().await?)
+    }
+    pub async fn get_judge(&self, request: JudgeRequest, access: AccessRequest) -> Result<Judge> {
+        let response = self
+            .post(
+                "/get_judge",
+                PostRequest {
+                    data: request,
+                    access,
+                },
+                StatusCode::OK,
+            )
+            .await?;
+        Ok(response.json::<Judge>().await?)
+    }
+    pub async fn get_bets(
+        &self,
+        request: PredictionUserRequest,
+        access: AccessRequest,
+    ) -> Result<Vec<Bet>> {
+        let response = self
+            .post(
+                "/get_bets",
+                PostRequest {
+                    data: request,
+                    access,
+                },
+                StatusCode::OK,
+            )
+            .await?;
+        Ok(response.json::<Vec<Bet>>().await?)
     }
 }
 

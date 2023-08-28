@@ -79,6 +79,16 @@ pub struct PredictionRequest {
     pub prediction: RowId,
     pub user: Option<UserPubKey>,
 }
+#[derive(Debug, Serialize, Deserialize, Clone, PartialEq)]
+pub struct PredictionUserRequest {
+    pub prediction: Option<RowId>,
+    pub user: Option<UserPubKey>,
+}
+#[derive(Debug, Serialize, Deserialize, Clone, PartialEq)]
+pub struct JudgeRequest {
+    pub prediction: RowId,
+    pub user: UserPubKey,
+}
 
 // Responses
 #[derive(PartialEq, Debug, Serialize, Deserialize, Clone)]

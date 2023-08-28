@@ -69,7 +69,7 @@ enum Commands {
         amount: u32,
         #[arg(short, long)]
         prediction: u32,
-        #[arg(short, long)]
+        #[arg(long)]
         pay: bool,
     },
     PayBet {
