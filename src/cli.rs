@@ -196,8 +196,10 @@ async fn main() -> Result<()> {
             let invoice = client.add_bet(request, access.clone()).await?;
             println!("Invoice: {}", invoice);
             let pay_request = PayBetRequest { invoice, amount };
-            client.pay_bet(pay_request, access).await?;
-            println!("Payed bet with {} sats", amount);
+            if pay {
+                client.pay_bet(pay_request, access).await?;
+                println!("Payed bet with {} sats", amount);
+            }
         }
         Commands::PayBet { invoice, amount } => {
             let pay_request = PayBetRequest { invoice, amount };
