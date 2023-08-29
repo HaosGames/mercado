@@ -793,9 +793,9 @@ impl DB for SQLite {
         let stmt = query(
             "SELECT rowid, prediction, judge_share_ppm, judge_count, trading_end, \
             decision_period, state \
-            FROM predictions",
+            FROM predictions WHERE rowid = ?",
         );
-        let row = self.connection.fetch_one(stmt).await?;
+        let row = self.connection.fetch_one(stmt.bind(prediction)).await?;
         let overview = PredictionOverviewResponse {
             id: row.get("rowid"),
             name: row.get("prediction"),
