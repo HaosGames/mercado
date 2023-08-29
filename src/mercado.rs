@@ -731,7 +731,10 @@ impl Mercado {
         if self.test {
             return Ok(UserRole::Root);
         }
-        let (db_sig, last_access) = self.db.get_last_access(access.user).await?;
+        let (db_sig, last_access) = self
+            .db
+            .get_last_access(access.user, access.challenge)
+            .await?;
         if access.sig != db_sig {
             debug!(
                 "User {} tried to access with invalid access token",
@@ -749,25 +752,27 @@ impl Mercado {
         let role = self.db.get_user_role(access.user).await?;
         Ok(role)
     }
-    pub async fn get_login_challenge(&mut self, user: UserPubKey) -> Result<String> {
+    pub async fn create_login_challenge(&mut self, user: UserPubKey) -> Result<String> {
         let challenge: String = rand::thread_rng()
             .sample_iter(&Alphanumeric)
             .take(30)
             .map(char::from)
             .collect();
         trace!("Generated login challenge {}", challenge);
-        self.db
-            .update_login_challenge(user, challenge.clone())
-            .await?;
+        self.db.create_session(user, challenge.clone()).await?;
         Ok(challenge)
     }
-    pub async fn try_login(&mut self, user: UserPubKey, sig: Signature) -> Result<()> {
-        let challenge = self.db.get_login_challenge(user).await?;
+    pub async fn try_login(
+        &mut self,
+        user: UserPubKey,
+        sig: Signature,
+        challenge: String,
+    ) -> Result<()> {
         sig.verify(
             &Message::from_hashed_data::<Hash>(challenge.as_bytes()),
             &user,
         )?;
-        self.db.update_access_token(user, sig).await?;
+        self.db.update_access_token(user, sig, challenge).await?;
         Ok(())
     }
     pub async fn update_user(
@@ -920,7 +925,8 @@ mod test {
     fn get_test_access() -> AccessRequest {
         AccessRequest {
             user: UserPubKey::from_str("023d51452445aa81ecc3cfcb82dbfe937707db5c89f9f9d21d64835158df405d8c").unwrap(),
-            sig: Signature::from_str("30440220208cef162c7081dafc61004daec32f5a3dadb4c6a1b4c0a479056a4962288d47022069022bc92673f73e9843cea14fa0cc46efa1b1e150339b603444c63035de21ee").unwrap()
+            sig: Signature::from_str("30440220208cef162c7081dafc61004daec32f5a3dadb4c6a1b4c0a479056a4962288d47022069022bc92673f73e9843cea14fa0cc46efa1b1e150339b603444c63035de21ee").unwrap(),
+            challenge: "iT1HqC3oaoGjbSZEjAwpGZiCbzjtyz".to_string()
         }
     }
 
@@ -954,79 +960,79 @@ mod test {
             .await
             .unwrap();
         market
-            .accept_nomination(&prediction, &j1, access)
+            .accept_nomination(&prediction, &j1, access.clone())
             .await
             .unwrap();
         market
-            .accept_nomination(&prediction, &j2, access)
+            .accept_nomination(&prediction, &j2, access.clone())
             .await
             .unwrap();
         market
-            .accept_nomination(&prediction, &j3, access)
+            .accept_nomination(&prediction, &j3, access.clone())
             .await
             .unwrap();
         let i1 = market
-            .add_bet(&prediction, &u1, true, access)
+            .add_bet(&prediction, &u1, true, access.clone())
             .await
             .unwrap();
         let i2 = market
-            .add_bet(&prediction, &u2, true, access)
+            .add_bet(&prediction, &u2, true, access.clone())
             .await
             .unwrap();
         let i3 = market
-            .add_bet(&prediction, &u3, true, access)
+            .add_bet(&prediction, &u3, true, access.clone())
             .await
             .unwrap();
-        market.pay_bet(&i1, 100, access).await.unwrap();
-        market.pay_bet(&i2, 100, access).await.unwrap();
-        market.pay_bet(&i3, 100, access).await.unwrap();
+        market.pay_bet(&i1, 100, access.clone()).await.unwrap();
+        market.pay_bet(&i2, 100, access.clone()).await.unwrap();
+        market.pay_bet(&i3, 100, access.clone()).await.unwrap();
         market
-            .force_decision_period(&prediction, access)
-            .await
-            .unwrap();
-        market
-            .make_decision(&prediction, &j1, true, access)
+            .force_decision_period(&prediction, access.clone())
             .await
             .unwrap();
         market
-            .make_decision(&prediction, &j2, true, access)
+            .make_decision(&prediction, &j1, true, access.clone())
             .await
             .unwrap();
         market
-            .make_decision(&prediction, &j3, true, access)
+            .make_decision(&prediction, &j2, true, access.clone())
+            .await
+            .unwrap();
+        market
+            .make_decision(&prediction, &j3, true, access.clone())
             .await
             .unwrap();
         assert_eq!(
             market
-                .cash_out_user(&prediction, &u1, &"i1".to_string(), access)
+                .cash_out_user(&prediction, &u1, &"i1".to_string(), access.clone())
                 .await
                 .unwrap(),
             89
         );
         assert_eq!(
             market
-                .cash_out_user(&prediction, &u2, &"i2".to_string(), access)
+                .cash_out_user(&prediction, &u2, &"i2".to_string(), access.clone())
                 .await
                 .unwrap(),
             89
         );
         assert_eq!(
             market
-                .cash_out_user(&prediction, &u3, &"i3".to_string(), access)
+                .cash_out_user(&prediction, &u3, &"i3".to_string(), access.clone())
                 .await
                 .unwrap(),
             89
         );
         assert_eq!(
             market
-                .cash_out_user(&prediction, &j1, &"i4".to_string(), access)
+                .cash_out_user(&prediction, &j1, &"i4".to_string(), access.clone())
                 .await
                 .unwrap(),
             10
         );
         assert_eq!(
             market
-                .cash_out_user(&prediction, &j2, &"i5".to_string(), access)
+                .cash_out_user(&prediction, &j2, &"i5".to_string(), access.clone())
                 .await
                 .unwrap(),
             10

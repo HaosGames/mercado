@@ -12,9 +12,10 @@ pub type RowId = i64;
 pub type Invoice = String;
 
 // Requests
-#[derive(Debug, Deserialize, Serialize, Clone, Copy, PartialEq)]
+#[derive(Debug, Deserialize, Serialize, Clone, PartialEq)]
 pub struct AccessRequest {
     pub user: UserPubKey,
+    pub challenge: String,
     pub sig: Signature,
 }
 #[derive(Debug, Deserialize, Serialize, Clone)]
@@ -25,6 +26,7 @@ pub struct PostRequest<T> {
 #[derive(Debug, Deserialize, Serialize, Clone)]
 pub struct LoginRequest {
     pub user: UserPubKey,
+    pub challenge: String,
     pub sig: Signature,
 }
 #[derive(Debug, Deserialize, Serialize, Clone)]

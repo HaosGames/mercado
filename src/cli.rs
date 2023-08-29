@@ -193,7 +193,7 @@ async fn main() -> Result<()> {
                 user,
             };
             let access = get_access().await?;
-            let invoice = client.add_bet(request, access).await?;
+            let invoice = client.add_bet(request, access.clone()).await?;
             println!("Invoice: {}", invoice);
             let pay_request = PayBetRequest { invoice, amount };
             client.pay_bet(pay_request, access).await?;
@@ -227,14 +227,17 @@ async fn main() -> Result<()> {
         Commands::Login => {
             let secret_key = read_secret().await?;
             let user = UserPubKey::from_secret_key_global(&secret_key);
-            let challenge = client.get_login_challenge(user.clone()).await?;
+            let challenge = client.create_login_challenge(user.clone()).await?;
             let message = Message::from_hashed_data::<Hash>(challenge.as_bytes());
             let signature = secret_key.sign_ecdsa(message);
             let mut file = File::create("access_token").await?;
             file.write_all(signature.to_string().as_bytes()).await?;
+            let mut file = File::create("challenge").await?;
+            file.write_all(challenge.as_bytes()).await?;
             println!("Signed Challenge \"{}\"", challenge);
             let request = LoginRequest {
                 user,
+                challenge,
                 sig: signature,
             };
             client.try_login(request).await?;
@@ -260,7 +263,12 @@ async fn main() -> Result<()> {
 async fn get_access() -> Result<AccessRequest> {
     let user = read_public().await?;
     let sig = read_token().await?;
-    Ok(AccessRequest { user, sig })
+    let challenge = read_challenge().await?;
+    Ok(AccessRequest {
+        user,
+        sig,
+        challenge,
+    })
 }
 async fn read_secret() -> Result<SecretKey> {
     let mut file = File::open("ecdsa.key").await?;
@@ -279,4 +287,10 @@ async fn read_token() -> Result<Signature> {
     let mut contents = vec![];
     file.read_to_end(&mut contents).await?;
     Ok(Signature::from_str(String::from_utf8(contents)?.as_str())?)
+}
+async fn read_challenge() -> Result<String> {
+    let mut file = File::open("challenge").await?;
+    let mut contents = vec![];
+    file.read_to_end(&mut contents).await?;
+    Ok(String::from_utf8(contents)?)
 }

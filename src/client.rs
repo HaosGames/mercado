@@ -190,7 +190,7 @@ impl Client {
             .await?;
         Ok(response.json::<Vec<Bet>>().await?)
     }
-    pub async fn get_login_challenge(&self, user: UserPubKey) -> Result<String> {
+    pub async fn create_login_challenge(&self, user: UserPubKey) -> Result<String> {
         let response = self
             .post("/get_login_challenge", user, StatusCode::OK)
             .await?;

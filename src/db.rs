@@ -76,11 +76,19 @@ pub trait DB {
     async fn get_prediction_ratio(&self, prediction: RowId) -> Result<(Sats, Sats)>;
 
     async fn update_user_role(&self, user: UserPubKey, role: UserRole) -> Result<()>;
-    async fn update_login_challenge(&self, user: UserPubKey, challenge: String) -> Result<()>;
-    async fn get_login_challenge(&self, user: UserPubKey) -> Result<String>;
-    async fn update_access_token(&self, user: UserPubKey, sig: Signature) -> Result<()>;
-    async fn update_access(&self, user: UserPubKey) -> Result<()>;
-    async fn get_last_access(&self, user: UserPubKey) -> Result<(Signature, DateTime<Utc>)>;
+    async fn create_session(&self, user: UserPubKey, challenge: String) -> Result<()>;
+    async fn update_access_token(
+        &self,
+        user: UserPubKey,
+        sig: Signature,
+        challenge: String,
+    ) -> Result<()>;
+    async fn update_access(&self, user: UserPubKey, challenge: String) -> Result<()>;
+    async fn get_last_access(
+        &self,
+        user: UserPubKey,
+        challenge: String,
+    ) -> Result<(Signature, DateTime<Utc>)>;
     async fn update_user(&self, user: UserPubKey, name: Option<String>) -> Result<()>;
     async fn get_user_role(&self, user: UserPubKey) -> Result<UserRole>;
     async fn create_user(&self, user: UserPubKey) -> Result<()>;
@@ -161,12 +169,21 @@ impl SQLite {
             .execute(
                 "CREATE TABLE IF NOT EXISTS users (\
                 pubkey,\
-                last_access,\
-                login_challenge,\
-                access_token,\
                 role DEFAULT User,\
                 username UNIQUE,\
                 PRIMARY KEY (pubkey)\
+                )",
+            )
+            .await
+            .unwrap();
+        connection
+            .execute(
+                "CREATE TABLE IF NOT EXISTS sessions (\
+                pubkey,\
+                last_access,\
+                challenge,\
+                access_token,\
+                PRIMARY KEY (challenge)\
                 )",
             )
             .await
@@ -848,67 +865,68 @@ impl DB for SQLite {
         let role: String = row.get("role");
         Ok(UserRole::from_str(role.as_str())?)
     }
-    async fn update_login_challenge(&self, user: UserPubKey, challenge: String) -> Result<()> {
+    async fn create_session(&self, user: UserPubKey, challenge: String) -> Result<()> {
         self.create_user(user).await?;
         let stmt = query(
-            "UPDATE users SET \
-            login_challenge = ? \
-            WHERE pubkey = ?",
+            "INSERT INTO sessions \
+            (pubkey, challenge) VALUES \
+            (?, ?)",
         );
         self.connection
-            .execute(stmt.bind(challenge).bind(user.to_string()))
+            .execute(stmt.bind(user.to_string()).bind(challenge))
             .await?;
         Ok(())
     }
-    async fn get_login_challenge(&self, user: UserPubKey) -> Result<String> {
+    async fn update_access_token(
+        &self,
+        user: UserPubKey,
+        sig: Signature,
+        challenge: String,
+    ) -> Result<()> {
         let stmt = query(
-            "SELECT pubkey, login_challenge \
-            FROM users \
-            WHERE pubkey = ?",
-        );
-        let row = self
-            .connection
-            .fetch_one(stmt.bind(user.to_string()))
-            .await?;
-        let challenge = row.get("login_challenge");
-        Ok(challenge)
-    }
-    async fn update_access_token(&self, user: UserPubKey, sig: Signature) -> Result<()> {
-        let stmt = query(
-            "UPDATE users SET \
+            "UPDATE sessions SET \
             access_token = ?, \
             last_access = ? \
-            WHERE pubkey = ?",
+            WHERE pubkey = ? AND challenge = ?",
         );
         self.connection
             .execute(
                 stmt.bind(sig.to_string())
                     .bind(Utc::now().timestamp())
-                    .bind(user.to_string()),
+                    .bind(user.to_string())
+                    .bind(challenge),
             )
             .await?;
         Ok(())
     }
-    async fn update_access(&self, user: UserPubKey) -> Result<()> {
+    async fn update_access(&self, user: UserPubKey, challenge: String) -> Result<()> {
         let stmt = query(
-            "UPDATE users SET \
+            "UPDATE sessions SET \
             last_access = ? \
-            WHERE pubkey = ?",
+            WHERE pubkey = ? AND challenge = ?",
         );
         self.connection
-            .execute(stmt.bind(Utc::now().timestamp()).bind(user.to_string()))
+            .execute(
+                stmt.bind(Utc::now().timestamp())
+                    .bind(user.to_string())
+                    .bind(challenge),
+            )
             .await?;
         Ok(())
     }
-    async fn get_last_access(&self, user: UserPubKey) -> Result<(Signature, DateTime<Utc>)> {
+    async fn get_last_access(
+        &self,
+        user: UserPubKey,
+        challenge: String,
+    ) -> Result<(Signature, DateTime<Utc>)> {
         let stmt = query(
             "SELECT access_token, last_access \
-            FROM users \
-            WHERE pubkey = ?",
+            FROM sessions \
+            WHERE pubkey = ? AND challenge = ?",
         );
         let row = self
             .connection
-            .fetch_one(stmt.bind(user.to_string()))
+            .fetch_one(stmt.bind(user.to_string()).bind(challenge))
             .await?;
         let token: String = row.get("access_token");
         let last_access = row.get("last_access");

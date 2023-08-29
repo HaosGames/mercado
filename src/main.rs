@@ -242,7 +242,7 @@ async fn get_login_challenge(
     let mut backend = state.write().await;
     trace!("Getting login challenge for {}", user);
     let challenge = backend
-        .get_login_challenge(user)
+        .create_login_challenge(user)
         .await
         .map_err(map_any_err_and_code)?;
     debug!("Login challenge for user {}: {}", user, challenge);
@@ -254,7 +254,7 @@ async fn try_login(
 ) -> Result<(), (StatusCode, String)> {
     let mut backend = state.write().await;
     backend
-        .try_login(request.user, request.sig)
+        .try_login(request.user, request.sig, request.challenge)
         .await
         .map_err(map_any_err_and_code)?;
     debug!("User {} successfully logged in", request.user);
@@ -405,7 +405,8 @@ mod test {
     fn get_test_access() -> AccessRequest {
         AccessRequest {
             user: UserPubKey::from_str("023d51452445aa81ecc3cfcb82dbfe937707db5c89f9f9d21d64835158df405d8c").unwrap(),
-            sig: Signature::from_str("30440220208cef162c7081dafc61004daec32f5a3dadb4c6a1b4c0a479056a4962288d47022069022bc92673f73e9843cea14fa0cc46efa1b1e150339b603444c63035de21ee").unwrap()
+            sig: Signature::from_str("30440220208cef162c7081dafc61004daec32f5a3dadb4c6a1b4c0a479056a4962288d47022069022bc92673f73e9843cea14fa0cc46efa1b1e150339b603444c63035de21ee").unwrap(),
+            challenge: "iT1HqC3oaoGjbSZEjAwpGZiCbzjtyz".to_string()
         }
     }
 
@@ -504,7 +505,10 @@ mod test {
             prediction: prediction_id,
             user: j3,
         };
-        let response = client.refuse_nomination(request, access).await.unwrap();
+        let response = client
+            .refuse_nomination(request, access.clone())
+            .await
+            .unwrap();
 
         // Accept Nomination for 2 judges
         for judge in [j1, j2] {
@@ -512,7 +516,10 @@ mod test {
                 prediction: prediction_id,
                 user: judge,
             };
-            let response = client.accept_nomination(request, access).await.unwrap();
+            let response = client
+                .accept_nomination(request, access.clone())
+                .await
+                .unwrap();
         }
 
         // Add bet for 3 users
@@ -522,17 +529,17 @@ mod test {
                 user,
                 bet: true,
             };
-            let invoice = client.add_bet(request, access).await.unwrap();
+            let invoice = client.add_bet(request, access.clone()).await.unwrap();
             let request = PayBetRequest {
                 invoice,
                 amount: 100,
             };
-            let response = client.pay_bet(request, access).await.unwrap();
+            let response = client.pay_bet(request, access.clone()).await.unwrap();
         }
 
         // Forcing the end of the decision period
         let response = client
-            .force_decision_period(prediction_id, access)
+            .force_decision_period(prediction_id, access.clone())
             .await
             .unwrap();
 
@@ -543,7 +550,7 @@ mod test {
                 judge,
                 decision: true,
             };
-            let response = client.make_decision(request, access).await.unwrap();
+            let response = client.make_decision(request, access.clone()).await.unwrap();
         }
 
         // Cash out users
@@ -553,7 +560,7 @@ mod test {
                 user,
                 invoice: user.to_string(),
             };
-            let sats = client.cash_out_user(request, access).await.unwrap();
+            let sats = client.cash_out_user(request, access.clone()).await.unwrap();
             assert_eq!(sats, 89);
         }
 
@@ -564,7 +571,7 @@ mod test {
                 user: judge,
                 invoice: judge.to_string(),
             };
-            let sats = client.cash_out_user(request, access).await.unwrap();
+            let sats = client.cash_out_user(request, access.clone()).await.unwrap();
             assert_eq!(sats, 15);
         }
 
