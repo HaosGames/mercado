@@ -149,7 +149,7 @@ pub struct Judge {
     pub prediction: RowId,
     pub state: JudgeState,
 }
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct JudgePublic {
     pub user: UserPubKey,
     pub prediction: RowId,

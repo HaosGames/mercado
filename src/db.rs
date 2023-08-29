@@ -313,7 +313,7 @@ impl DB for SQLite {
                 .fetch_one(
                     query(
                         "SELECT state FROM judges WHERE \
-                user = ?, \
+                user = ? AND \
                 prediction = ?",
                     )
                     .bind(user.to_string())
@@ -328,7 +328,7 @@ impl DB for SQLite {
                 .fetch_one(
                     query(
                         "SELECT decision FROM judges WHERE \
-                    user = ?, \
+                    user = ? AND \
                     prediction = ?",
                     )
                     .bind(user.to_string())

@@ -734,7 +734,8 @@ impl Mercado {
         let (db_sig, last_access) = self
             .db
             .get_last_access(access.user, access.challenge)
-            .await?;
+            .await
+            .context("Error getting session from db")?;
         if access.sig != db_sig {
             debug!(
                 "User {} tried to access with invalid access token",
