@@ -224,6 +224,16 @@ impl Client {
         let response = self.post("/get_username", user, StatusCode::OK).await?;
         Ok(response.text().await?)
     }
+    pub async fn get_user(&self, user: UserPubKey, access: AccessRequest) -> Result<UserResponse> {
+        let response = self
+            .post(
+                "/get_user",
+                PostRequest { data: user, access },
+                StatusCode::OK,
+            )
+            .await?;
+        Ok(response.json::<UserResponse>().await?)
+    }
     pub async fn get_judges(&self, request: PredictionUserRequest) -> Result<Vec<JudgePublic>> {
         let response = self.post("/get_judges", request, StatusCode::OK).await?;
         Ok(response.json::<Vec<JudgePublic>>().await?)

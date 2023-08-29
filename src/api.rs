@@ -1,5 +1,9 @@
-use std::fmt::{Display, Formatter};
+use std::{
+    fmt::{Display, Formatter},
+    str::FromStr,
+};
 
+use anyhow::bail;
 use chrono::{DateTime, Utc};
 use log::debug;
 use reqwest::StatusCode;
@@ -103,6 +107,12 @@ pub struct PredictionOverviewResponse {
     pub trading_end: DateTime<Utc>,
     pub decision_period_sec: u32,
 }
+#[derive(PartialEq, Debug, Serialize, Deserialize, Clone)]
+pub struct UserResponse {
+    pub user: UserPubKey,
+    pub username: Option<String>,
+    pub role: UserRole,
+}
 
 // helper functions
 pub fn map_any_err_and_code(e: anyhow::Error) -> (StatusCode, String) {
@@ -198,5 +208,38 @@ impl Display for MarketState {
             Self::Refunded(_) => "Refunded",
         };
         write!(f, "{}", output)
+    }
+}
+#[derive(Debug, Serialize, Deserialize, Clone, PartialEq)]
+pub enum UserRole {
+    User,
+    Admin,
+    Root,
+}
+impl Display for UserRole {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        let output = match self {
+            Self::User => "User",
+            Self::Admin => "Admin",
+            Self::Root => "Root",
+        };
+        write!(f, "{}", output)
+    }
+}
+impl FromStr for UserRole {
+    type Err = anyhow::Error;
+
+    fn from_str(s: &str) -> std::result::Result<Self, Self::Err> {
+        match s {
+            "User" => Ok(Self::User),
+            "Admin" => Ok(Self::Admin),
+            "Root" => Ok(Self::Root),
+            e => bail!("Couldn't deserialize to UserRole: {}", e),
+        }
+    }
+}
+impl Default for UserRole {
+    fn default() -> Self {
+        UserRole::User
     }
 }

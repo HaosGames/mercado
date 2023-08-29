@@ -1,5 +1,5 @@
 use crate::api::*;
-use crate::mercado::{Prediction, UserRole};
+use crate::mercado::Prediction;
 use anyhow::{Context, Ok, Result};
 use async_trait::async_trait;
 use chrono::{DateTime, Duration, TimeZone, Utc};
@@ -93,6 +93,7 @@ pub trait DB {
     async fn get_user_role(&self, user: UserPubKey) -> Result<UserRole>;
     async fn create_user(&self, user: UserPubKey) -> Result<()>;
     async fn get_username(&self, user: UserPubKey) -> Result<String>;
+    async fn get_user(&self, user: UserPubKey) -> Result<UserResponse>;
     async fn get_judges(
         &self,
         prediction: Option<RowId>,
@@ -963,6 +964,18 @@ impl DB for SQLite {
             .fetch_one(stmt.bind(user.to_string()))
             .await?;
         Ok(row.get("username"))
+    }
+    async fn get_user(&self, user: UserPubKey) -> Result<UserResponse> {
+        let stmt = query("SELECT username, role FROM users WHERE pubkey = ?");
+        let row = self
+            .connection
+            .fetch_one(stmt.bind(user.to_string()))
+            .await?;
+        Ok(UserResponse {
+            user,
+            username: row.try_get("username").ok(),
+            role: UserRole::from_str(row.get("role"))?,
+        })
     }
     async fn get_judges(
         &self,

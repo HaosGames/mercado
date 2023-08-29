@@ -293,6 +293,17 @@ async fn get_username(
         .map_err(map_any_err_and_code)?;
     Ok(username)
 }
+async fn get_user(
+    State(state): State<Arc<RwLock<Mercado>>>,
+    Json(request): Json<PostRequest<UserPubKey>>,
+) -> Result<Json<UserResponse>, (StatusCode, String)> {
+    let backend = state.read().await;
+    let user = backend
+        .get_user(request.data, request.access)
+        .await
+        .map_err(map_any_err_and_code)?;
+    Ok(Json(user))
+}
 async fn get_judges(
     State(state): State<Arc<RwLock<Mercado>>>,
     Json(request): Json<PredictionUserRequest>,
@@ -380,6 +391,7 @@ async fn run_server(port: Option<u16>, admin: Vec<String>, test: bool) -> (u16, 
         .route("/cancel_bet", post(cancel_bet))
         .route("/force_decision_period", post(force_decision_period))
         .route("/get_username", post(get_username))
+        .route("/get_user", post(get_user))
         .route("/get_judges", post(get_judges))
         .route("/get_judge", post(get_judge))
         .route("/get_bets", post(get_bets))

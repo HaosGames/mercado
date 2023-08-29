@@ -105,39 +105,6 @@ impl FromStr for BetState {
         }
     }
 }
-#[derive(Debug)]
-pub enum UserRole {
-    User,
-    Admin,
-    Root,
-}
-impl Display for UserRole {
-    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        let output = match self {
-            Self::User => "User",
-            Self::Admin => "Admin",
-            Self::Root => "Root",
-        };
-        write!(f, "{}", output)
-    }
-}
-impl FromStr for UserRole {
-    type Err = anyhow::Error;
-
-    fn from_str(s: &str) -> std::result::Result<Self, Self::Err> {
-        match s {
-            "User" => Ok(Self::User),
-            "Admin" => Ok(Self::Admin),
-            "Root" => Ok(Self::Root),
-            e => bail!("Couldn't deserialize to UserRole: {}", e),
-        }
-    }
-}
-impl Default for UserRole {
-    fn default() -> Self {
-        UserRole::User
-    }
-}
 impl Mercado {
     pub async fn new(
         db: Box<dyn DB + Send + Sync>,
@@ -799,6 +766,10 @@ impl Mercado {
     }
     pub async fn get_username(&self, user: UserPubKey) -> Result<String> {
         self.db.get_username(user).await
+    }
+    pub async fn get_user(&self, user: UserPubKey, access: AccessRequest) -> Result<UserResponse> {
+        self.check_access_for_user(user, access).await?;
+        self.db.get_user(user).await
     }
     pub async fn get_judges(
         &self,
