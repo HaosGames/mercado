@@ -757,7 +757,7 @@ impl DB for SQLite {
             decision_period, predictions.state, bet, sum(amount) AS amount \
             FROM predictions \
             LEFT JOIN bets ON predictions.rowid = bets.prediction \
-            GROUP BY bet, predictions.prediction",
+            GROUP BY bet, predictions.rowid",
         );
         let rows = self.connection.fetch_all(stmt).await?;
 
