@@ -95,7 +95,7 @@ enum Commands {
     UpdateUser {
         #[arg(short, long)]
         user: String,
-        #[arg(short, long)]
+        #[arg(long)]
         username: Option<String>,
     },
 }
