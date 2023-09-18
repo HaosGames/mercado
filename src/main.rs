@@ -291,7 +291,14 @@ async fn get_username(
         .get_username(request)
         .await
         .map_err(map_any_err_and_code)?;
-    Ok(username)
+    if let Some(username) = username {
+        Ok(username)
+    } else {
+        Err((
+            StatusCode::NOT_FOUND,
+            "No username set for user".to_string(),
+        ))
+    }
 }
 async fn get_user(
     State(state): State<Arc<RwLock<Mercado>>>,
@@ -338,6 +345,8 @@ async fn get_bets(
     Ok(Json(bets))
 }
 
+const DB_CONN: &str = "sqlite::memory:";
+
 #[derive(Parser)]
 struct Args {
     #[arg(short, long)]
@@ -346,6 +355,8 @@ struct Args {
     port: u16,
     #[arg(short, long)]
     test: bool,
+    #[arg(short, long)]
+    db: Option<String>,
 }
 
 #[tokio::main]
@@ -355,15 +366,20 @@ async fn main() -> Result<()> {
         .write_style(WriteStyle::Always)
         .init();
     let cli = Args::parse();
-    let (_port, handle) = run_server(Some(cli.port), cli.admin, cli.test).await;
+    let (_port, handle) = run_server(Some(cli.port), cli.admin, cli.test, cli.db).await;
     handle.await;
     Ok(())
 }
 
-async fn run_server(port: Option<u16>, admin: Vec<String>, test: bool) -> (u16, JoinHandle<()>) {
+async fn run_server(
+    port: Option<u16>,
+    admin: Vec<String>,
+    test: bool,
+    db_conn: Option<String>,
+) -> (u16, JoinHandle<()>) {
     let state = Arc::new(RwLock::new(
         Mercado::new(
-            Box::new(SQLite::new().await),
+            Box::new(SQLite::new(db_conn).await),
             Box::new(TestFundingSource::default()),
             admin,
             test,
@@ -424,7 +440,7 @@ mod test {
 
     #[tokio::test]
     async fn new_prediction() {
-        let (port, _) = run_server(None, vec![], true).await;
+        let (port, _) = run_server(None, vec![], true, None).await;
         let client = Client::new("http://127.0.0.1:".to_string() + port.to_string().as_str());
 
         let (_, j1) = generate_keypair(&mut rand::thread_rng());
@@ -488,7 +504,7 @@ mod test {
         //     .filter_level(LevelFilter::Debug)
         //     .write_style(WriteStyle::Always)
         //     .init();
-        let (port, _) = run_server(None, vec![], true).await;
+        let (port, _) = run_server(None, vec![], true, None).await;
         let client = Client::new("http://127.0.0.1:".to_string() + port.to_string().as_str());
         let access = get_test_access();
 

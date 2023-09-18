@@ -764,7 +764,7 @@ impl Mercado {
         }
         Ok(())
     }
-    pub async fn get_username(&self, user: UserPubKey) -> Result<String> {
+    pub async fn get_username(&self, user: UserPubKey) -> Result<Option<String>> {
         self.db.get_username(user).await
     }
     pub async fn get_user(&self, user: UserPubKey, access: AccessRequest) -> Result<UserResponse> {
@@ -912,7 +912,7 @@ mod test {
         let (_, j3) = generate_keypair(&mut rand::thread_rng());
 
         let mut market = Mercado::new(
-            Box::new(SQLite::new().await),
+            Box::new(SQLite::new(None).await),
             Box::new(TestFundingSource::default()),
             vec![],
             true,

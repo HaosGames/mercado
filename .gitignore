@@ -11,3 +11,6 @@ access_token
 #/target
 frontend/dist
 challenge
+
+#DB
+data.db

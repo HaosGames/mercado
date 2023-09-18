@@ -4,6 +4,7 @@ use anyhow::{Context, Ok, Result};
 use async_trait::async_trait;
 use chrono::{DateTime, Duration, TimeZone, Utc};
 use secp256k1::ecdsa::Signature;
+use sqlx::sqlite::SqliteConnectOptions;
 use sqlx::{query, Executor, Pool, Row, SqlitePool};
 use std::collections::HashMap;
 use std::str::FromStr;
@@ -92,7 +93,7 @@ pub trait DB {
     async fn update_user(&self, user: UserPubKey, name: Option<String>) -> Result<()>;
     async fn get_user_role(&self, user: UserPubKey) -> Result<UserRole>;
     async fn create_user(&self, user: UserPubKey) -> Result<()>;
-    async fn get_username(&self, user: UserPubKey) -> Result<String>;
+    async fn get_username(&self, user: UserPubKey) -> Result<Option<String>>;
     async fn get_user(&self, user: UserPubKey) -> Result<UserResponse>;
     async fn get_judges(
         &self,
@@ -109,8 +110,13 @@ pub struct SQLite {
     connection: SqlitePool,
 }
 impl SQLite {
-    pub async fn new() -> Self {
-        let connection = Pool::connect("sqlite::memory:").await.unwrap();
+    pub async fn new(db_conn: Option<String>) -> Self {
+        let db_conn = db_conn.unwrap_or("sqlite::memory:".to_string());
+        let options = SqliteConnectOptions::from_str(db_conn.as_str())
+            .unwrap()
+            .create_if_missing(true)
+            .foreign_keys(false);
+        let connection = Pool::connect_with(options).await.unwrap();
         connection
             .execute(
                 "CREATE TABLE IF NOT EXISTS predictions (\
@@ -957,13 +963,17 @@ impl DB for SQLite {
         self.connection.execute(stmt.bind(user.to_string())).await?;
         Ok(())
     }
-    async fn get_username(&self, user: UserPubKey) -> Result<String> {
+    async fn get_username(&self, user: UserPubKey) -> Result<Option<String>> {
         let stmt = query("SELECT username FROM users WHERE pubkey = ?");
         let row = self
             .connection
-            .fetch_one(stmt.bind(user.to_string()))
+            .fetch_optional(stmt.bind(user.to_string()))
             .await?;
-        Ok(row.get("username"))
+        if let Some(row) = row {
+            Ok(row.get("username"))
+        } else {
+            Ok(None)
+        }
     }
     async fn get_user(&self, user: UserPubKey) -> Result<UserResponse> {
         let stmt = query("SELECT username, role FROM users WHERE pubkey = ?");
