@@ -94,7 +94,7 @@ enum Commands {
     },
     UpdateUser {
         #[arg(short, long)]
-        user: String,
+        user: UserPubKey,
         #[arg(long)]
         username: Option<String>,
     },
@@ -253,10 +253,7 @@ async fn main() -> Result<()> {
         }
         Commands::UpdateUser { user, username } => {
             let access = get_access().await?;
-            let data = UpdateUserRequest {
-                user: UserPubKey::from_str(user.as_str())?,
-                username,
-            };
+            let data = UpdateUserRequest { user, username };
             client.update_user(data, access).await?;
         }
     }
