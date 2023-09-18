@@ -277,7 +277,7 @@ async fn update_user(
 ) -> Result<(), (StatusCode, String)> {
     let mut backend = state.write().await;
     backend
-        .update_user(request.access.user, request.data.username, request.access)
+        .update_user(request.data.user, request.data.username, request.access)
         .await
         .map_err(map_any_err_and_code)?;
     Ok(())

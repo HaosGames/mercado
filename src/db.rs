@@ -90,7 +90,7 @@ pub trait DB {
         user: UserPubKey,
         challenge: String,
     ) -> Result<(Signature, DateTime<Utc>)>;
-    async fn update_user(&self, user: UserPubKey, name: Option<String>) -> Result<()>;
+    async fn update_username(&self, user: UserPubKey, name: String) -> Result<()>;
     async fn get_user_role(&self, user: UserPubKey) -> Result<UserRole>;
     async fn create_user(&self, user: UserPubKey) -> Result<()>;
     async fn get_username(&self, user: UserPubKey) -> Result<Option<String>>;
@@ -942,17 +942,16 @@ impl DB for SQLite {
             Utc.timestamp_opt(last_access, 0).unwrap(),
         ))
     }
-    async fn update_user(&self, user: UserPubKey, name: Option<String>) -> Result<()> {
-        if let Some(name) = name {
-            let stmt = query(
-                "UPDATE users SET \
+    async fn update_username(&self, user: UserPubKey, name: String) -> Result<()> {
+        self.create_user(user).await?;
+        let stmt = query(
+            "UPDATE users SET \
             username = ? \
             WHERE pubkey = ?",
-            );
-            self.connection
-                .execute(stmt.bind(name).bind(user.to_string()))
-                .await?;
-        }
+        );
+        self.connection
+            .execute(stmt.bind(name).bind(user.to_string()))
+            .await?;
         Ok(())
     }
     async fn create_user(&self, user: UserPubKey) -> Result<()> {

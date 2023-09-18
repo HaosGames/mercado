@@ -750,7 +750,10 @@ impl Mercado {
         access: AccessRequest,
     ) -> Result<()> {
         self.check_access_for_user(user, access).await?;
-        self.db.update_user(user, name).await
+        if let Some(name) = name {
+            self.db.update_username(user, name).await?;
+        }
+        Ok(())
     }
     pub async fn check_access_for_user(
         &self,
