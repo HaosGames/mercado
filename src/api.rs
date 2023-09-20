@@ -52,7 +52,7 @@ pub struct NominationRequest {
     pub prediction: RowId,
     pub user: UserPubKey,
 }
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct AddBetRequest {
     pub prediction: RowId,
     pub user: UserPubKey,
