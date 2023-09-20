@@ -465,9 +465,10 @@ mod test {
             decision_period_sec: Duration::days(1).num_seconds().try_into().unwrap(),
             judge_count: 2,
         };
-        let response = client.new_prediction(prediction_http_request.clone()).await;
-        assert_eq!(response.status(), StatusCode::CREATED);
-        let prediction_id = response.json::<RowId>().await.unwrap();
+        let prediction_id = client
+            .new_prediction(prediction_http_request.clone())
+            .await
+            .unwrap();
         prediction_request.prediction = prediction_id;
 
         let prediction = client
@@ -524,9 +525,7 @@ mod test {
             decision_period_sec: Duration::days(1).num_seconds().try_into().unwrap(),
             judge_count: 2,
         };
-        let response = client.new_prediction(prediction).await;
-        assert_eq!(response.status(), StatusCode::CREATED);
-        let prediction_id = response.json::<RowId>().await.unwrap();
+        let prediction_id = client.new_prediction(prediction).await.unwrap();
 
         // Refuse Nomination for 1 judge
         let request = NominationRequest {

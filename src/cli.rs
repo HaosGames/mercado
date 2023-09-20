@@ -125,8 +125,8 @@ async fn main() -> Result<()> {
                 decision_period_sec: 86400,
                 judge_count: 3,
             };
-            let response = client.new_prediction(request).await;
-            println!("{}: {}", response.status(), response.text().await.unwrap());
+            let rowid = client.new_prediction(request).await?;
+            println!("Created new prediction: {}", rowid);
         }
         Commands::AcceptNomination { prediction, judge } => {
             let request = NominationRequest {

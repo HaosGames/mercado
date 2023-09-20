@@ -32,13 +32,11 @@ impl Client {
         let response = self.client.get(self.url.clone() + path).send().await?;
         bail_if_err(response, expexted_code).await
     }
-    pub async fn new_prediction(&self, request: NewPredictionRequest) -> Response {
-        self.client
-            .post(self.url.clone() + "/new_prediction")
-            .json(&request)
-            .send()
-            .await
-            .unwrap()
+    pub async fn new_prediction(&self, request: NewPredictionRequest) -> Result<RowId> {
+        let response = self
+            .post("/new_prediction", request, StatusCode::CREATED)
+            .await?;
+        Ok(response.json::<RowId>().await?)
     }
     pub async fn accept_nomination(
         &self,

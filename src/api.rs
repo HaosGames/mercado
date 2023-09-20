@@ -38,7 +38,7 @@ pub struct UpdateUserRequest {
     pub user: UserPubKey,
     pub username: Option<String>,
 }
-#[derive(Debug, Deserialize, Serialize, Clone)]
+#[derive(Debug, Deserialize, Serialize, Clone, PartialEq)]
 pub struct NewPredictionRequest {
     pub prediction: String,
     pub judges: Vec<UserPubKey>,
