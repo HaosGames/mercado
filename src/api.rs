@@ -153,7 +153,7 @@ impl Display for BetState {
         write!(f, "{}", output)
     }
 }
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, Copy)]
 pub struct Judge {
     pub user: UserPubKey,
     pub prediction: RowId,
@@ -164,14 +164,14 @@ pub struct JudgePublic {
     pub user: UserPubKey,
     pub prediction: RowId,
 }
-#[derive(PartialEq, Debug, Clone, Serialize, Deserialize)]
+#[derive(PartialEq, Debug, Clone, Serialize, Deserialize, Copy)]
 pub enum JudgeState {
     Nominated,
     Accepted,
     Refused,
     Resolved(bool),
 }
-#[derive(PartialEq, Debug, Clone, Serialize, Deserialize)]
+#[derive(PartialEq, Debug, Clone, Serialize, Deserialize, Copy)]
 pub enum MarketState {
     WaitingForJudges,
     Trading,
@@ -180,7 +180,7 @@ pub enum MarketState {
     Resolved(bool),
     Refunded(RefundReason),
 }
-#[derive(PartialEq, Debug, Clone, Serialize, Deserialize)]
+#[derive(PartialEq, Debug, Clone, Copy, Serialize, Deserialize)]
 pub enum RefundReason {
     Insolvency,
     TimeForDecisionRanOut,
