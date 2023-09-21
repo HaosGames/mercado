@@ -189,10 +189,10 @@ pub enum RefundReason {
 impl Display for JudgeState {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         let output = match self {
-            Self::Nominated => "Nominated",
-            Self::Accepted => "Accepted",
-            Self::Refused => "Refused",
-            Self::Resolved(_) => "Resolved",
+            Self::Nominated => "Nominated".into(),
+            Self::Accepted => "Accepted".into(),
+            Self::Refused => "Refused".into(),
+            Self::Resolved(decision) => format!("Resolved({})", decision),
         };
         write!(f, "{}", output)
     }
@@ -200,12 +200,22 @@ impl Display for JudgeState {
 impl Display for MarketState {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         let output = match self {
-            Self::WaitingForJudges => "WaitingForJudges",
-            Self::Trading => "Trading",
-            Self::TradingStop => "TradingStop",
-            Self::WaitingForDecision => "WaitingForDecision",
-            Self::Resolved(_) => "Resolved",
-            Self::Refunded(_) => "Refunded",
+            Self::WaitingForJudges => "WaitingForJudges".into(),
+            Self::Trading => "Trading".into(),
+            Self::TradingStop => "TradingStop".into(),
+            Self::WaitingForDecision => "WaitingForDecision".into(),
+            Self::Resolved(outcome) => format!("Resolved({})", outcome),
+            Self::Refunded(reason) => format!("Refunded({})", reason),
+        };
+        write!(f, "{}", output)
+    }
+}
+impl Display for RefundReason {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        let output = match self {
+            Self::Insolvency => "Insolvency",
+            Self::TimeForDecisionRanOut => "TimeForDecisionRanOut",
+            Self::Tie => "Tie",
         };
         write!(f, "{}", output)
     }

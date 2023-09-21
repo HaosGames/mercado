@@ -39,7 +39,8 @@ impl FromStr for JudgeState {
             "Nominated" => Ok(Self::Nominated),
             "Accepted" => Ok(Self::Accepted),
             "Refused" => Ok(Self::Refused),
-            "Resolved" => Ok(Self::Resolved(true)),
+            "Resolved(true)" => Ok(Self::Resolved(true)),
+            "Resolved(false)" => Ok(Self::Resolved(false)),
             _ => unreachable!(),
         }
     }
@@ -52,8 +53,13 @@ impl FromStr for MarketState {
             "Trading" => Ok(Self::Trading),
             "TradingStop" => Ok(Self::TradingStop),
             "WaitingForDecision" => Ok(Self::WaitingForDecision),
-            "Resolved" => Ok(Self::Resolved(true)),
-            "Refunded" => Ok(Self::Refunded(RefundReason::TimeForDecisionRanOut)),
+            "Resolved(true)" => Ok(Self::Resolved(true)),
+            "Resolved(false)" => Ok(Self::Resolved(false)),
+            "Refunded(TimeForDecisionRanOut)" => {
+                Ok(Self::Refunded(RefundReason::TimeForDecisionRanOut))
+            }
+            "Refunded(Insolvency)" => Ok(Self::Refunded(RefundReason::Insolvency)),
+            "Refunded(Tie)" => Ok(Self::Refunded(RefundReason::Tie)),
             _ => unreachable!(),
         }
     }
@@ -68,16 +74,6 @@ impl FromStr for RefundReason {
             "Tie" => Ok(Self::Tie),
             _ => unreachable!(),
         }
-    }
-}
-impl Display for RefundReason {
-    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        let output = match self {
-            Self::Insolvency => "Insolvency",
-            Self::TimeForDecisionRanOut => "TimeForDecisionRanOut",
-            Self::Tie => "Tie",
-        };
-        write!(f, "{}", output)
     }
 }
 #[derive(Debug)]

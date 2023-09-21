@@ -126,9 +126,7 @@ impl SQLite {
             state,\
             trading_end,\
             decision_period,\
-            judge_count,\
-            outcome,\
-            refund_reason\
+            judge_count\
             )",
             )
             .await
@@ -244,32 +242,7 @@ impl DB for SQLite {
                 .with_context(|| format!("couldn't get state for prediction {}", prediction))?
                 .get("state"),
         )?;
-        match state {
-            MarketState::Resolved(_) => {
-                let outcome = self
-                    .connection
-                    .fetch_one(
-                        query("SELECT outcome FROM predictions WHERE rowid = ?").bind(prediction),
-                    )
-                    .await
-                    .with_context(|| format!("couldn't get outcome for prediction {}", prediction))?
-                    .get("outcome");
-                Ok(MarketState::Resolved(outcome))
-            }
-            MarketState::Refunded(_) => {
-                let reason = RefundReason::from_str(
-                    self.connection
-                        .fetch_one(
-                            query("SELECT refund_reason FROM predictions WHERE rowid = ?")
-                                .bind(prediction),
-                        )
-                        .await?
-                        .get("refund_reason"),
-                )?;
-                Ok(MarketState::Refunded(reason))
-            }
-            state => Ok(state),
-        }
+        Ok(state)
     }
     async fn set_prediction_state(&self, prediction: &RowId, state: MarketState) -> Result<()> {
         self.connection
@@ -283,35 +256,6 @@ impl DB for SQLite {
                 .bind(prediction),
             )
             .await?;
-        match state {
-            MarketState::Resolved(outcome) => {
-                self.connection
-                    .execute(
-                        query(
-                            "UPDATE predictions \
-                SET outcome = ? \
-                WHERE rowid = ?",
-                        )
-                        .bind(outcome)
-                        .bind(prediction),
-                    )
-                    .await?;
-            }
-            MarketState::Refunded(reason) => {
-                self.connection
-                    .execute(
-                        query(
-                            "UPDATE predictions \
-                SET refund_reason = ? \
-                WHERE rowid = ?",
-                        )
-                        .bind(reason.to_string())
-                        .bind(prediction),
-                    )
-                    .await?;
-            }
-            _ => {}
-        }
         Ok(())
     }
     async fn get_judge_state(&self, prediction: RowId, user: &UserPubKey) -> Result<JudgeState> {
@@ -760,7 +704,7 @@ impl DB for SQLite {
     async fn get_predictions(&self) -> Result<HashMap<RowId, PredictionOverviewResponse>> {
         let stmt = query(
             "SELECT predictions.rowid, predictions.prediction, judge_share_ppm, judge_count, trading_end, \
-            decision_period, predictions.state, bet, sum(amount) AS amount, outcome \
+            decision_period, predictions.state, bet, sum(amount) AS amount \
             FROM predictions \
             LEFT JOIN bets ON predictions.rowid = bets.prediction \
             GROUP BY bet, predictions.rowid",
@@ -775,10 +719,7 @@ impl DB for SQLite {
             let judge_count = row.get("judge_count");
             let decision_period_sec = row.get("decision_period");
             let trading_end = Utc.timestamp_opt(row.get("trading_end"), 0).unwrap();
-            let mut state = MarketState::from_str(row.get("state")).unwrap();
-            if let MarketState::Resolved(_) = state {
-                state = MarketState::Resolved(row.get("outcome"));
-            }
+            let state = MarketState::from_str(row.get("state")).unwrap();
 
             predictions.insert(
                 id,
@@ -801,11 +742,11 @@ impl DB for SQLite {
     ) -> Result<PredictionOverviewResponse> {
         let stmt = query(
             "SELECT rowid, prediction, judge_share_ppm, judge_count, trading_end, \
-            decision_period, state, outcome \
+            decision_period, state \
             FROM predictions WHERE rowid = ?",
         );
         let row = self.connection.fetch_one(stmt.bind(prediction)).await?;
-        let mut overview = PredictionOverviewResponse {
+        let overview = PredictionOverviewResponse {
             id: row.get("rowid"),
             name: row.get("prediction"),
             judge_share_ppm: row.get("judge_share_ppm"),
@@ -814,9 +755,6 @@ impl DB for SQLite {
             decision_period_sec: row.get("decision_period"),
             state: MarketState::from_str(row.get("state")).unwrap(),
         };
-        if let MarketState::Resolved(_) = overview.state {
-            overview.state = MarketState::Resolved(row.get("outcome"));
-        }
         Ok(overview)
     }
     async fn get_prediction_judges(&self, prediction: RowId) -> Result<Vec<Judge>> {
