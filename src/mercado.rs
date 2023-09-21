@@ -5,7 +5,7 @@ use crate::{
 };
 use anyhow::{anyhow, bail, Context, Result};
 use chrono::{DateTime, Duration, Utc};
-use log::{debug, trace};
+use log::{debug, error, trace};
 use reqwest::StatusCode;
 use rust_decimal::prelude::ToPrimitive;
 use rust_decimal::Decimal;
@@ -41,7 +41,13 @@ impl FromStr for JudgeState {
             "Refused" => Ok(Self::Refused),
             "Resolved(true)" => Ok(Self::Resolved(true)),
             "Resolved(false)" => Ok(Self::Resolved(false)),
-            _ => unreachable!(),
+            e => {
+                error!(
+                    "Error trying to serialize \"{}\" from db into JudgeState",
+                    e
+                );
+                unreachable!()
+            }
         }
     }
 }
@@ -60,7 +66,13 @@ impl FromStr for MarketState {
             }
             "Refunded(Insolvency)" => Ok(Self::Refunded(RefundReason::Insolvency)),
             "Refunded(Tie)" => Ok(Self::Refunded(RefundReason::Tie)),
-            _ => unreachable!(),
+            e => {
+                error!(
+                    "Error trying to serialize \"{}\" from db into MarketState",
+                    e
+                );
+                unreachable!()
+            }
         }
     }
 }
@@ -72,7 +84,13 @@ impl FromStr for RefundReason {
             "Insolvency" => Ok(Self::Insolvency),
             "TimeForDecisionRanOut" => Ok(Self::TimeForDecisionRanOut),
             "Tie" => Ok(Self::Tie),
-            _ => unreachable!(),
+            e => {
+                error!(
+                    "Error trying to serialize \"{}\" from db into RefundReason",
+                    e
+                );
+                unreachable!()
+            }
         }
     }
 }
