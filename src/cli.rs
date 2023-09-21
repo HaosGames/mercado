@@ -177,7 +177,11 @@ async fn main() -> Result<()> {
             println!("True: {} sats | False {} sats", response.0, response.1);
             let response = client.get_prediction_judges(request.clone()).await?;
             println!("Judges: {:#?}", response);
-            let response = client.get_prediction_bets(request).await?;
+            let request = PredictionUserRequest {
+                prediction: Some(request.prediction),
+                user: request.user,
+            };
+            let response = client.get_bets(request, get_access().await?).await?;
             println!("Bets: {:#?}", response);
         }
         Commands::AddBet {

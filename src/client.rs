@@ -216,12 +216,6 @@ impl Client {
             .await?;
         Ok(response.json::<PredictionOverviewResponse>().await?)
     }
-    pub async fn get_prediction_bets(&self, request: PredictionRequest) -> Result<Vec<Bet>> {
-        let response = self
-            .post("/get_prediction_bets", request, StatusCode::OK)
-            .await?;
-        Ok(response.json::<Vec<Bet>>().await?)
-    }
     pub async fn create_login_challenge(&self, user: UserPubKey) -> Result<String> {
         let response = self
             .post("/get_login_challenge", user, StatusCode::OK)

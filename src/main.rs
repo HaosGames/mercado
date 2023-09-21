@@ -229,21 +229,6 @@ async fn get_prediction_judges(
         .map_err(map_any_err_and_code)?;
     Ok(Json(judges))
 }
-async fn get_prediction_bets(
-    State(state): State<Arc<RwLock<Mercado>>>,
-    Json(request): Json<PredictionRequest>,
-) -> Result<Json<Vec<Bet>>, (StatusCode, String)> {
-    let mut backend = state.write().await;
-    let bets = backend
-        .get_prediction_bets(request.prediction, request.user)
-        .await
-        .map_err(map_any_err_and_code)?;
-    Ok(Json(bets))
-}
-async fn get_bet() {}
-async fn get_user_bets() {}
-async fn get_user_prediction_bets() {}
-
 async fn force_decision_period(
     State(state): State<Arc<RwLock<Mercado>>>,
     Json(request): Json<PostRequest<RowId>>,
@@ -424,7 +409,6 @@ async fn run_server(
         .route("/get_prediction_overview", post(get_prediction_overview))
         .route("/get_prediction_ratio", post(get_prediction_ratio))
         .route("/get_prediction_judges", post(get_prediction_judges))
-        .route("/get_prediction_bets", post(get_prediction_bets))
         .route("/try_login", post(try_login))
         .route("/check_login", post(check_login))
         .route("/get_login_challenge", post(get_login_challenge))
