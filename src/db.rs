@@ -62,6 +62,11 @@ pub trait DB {
         prediction: &RowId,
         user: &UserPubKey,
     ) -> Result<(Option<Invoice>, Sats)>;
+    async fn get_cash_outs(
+        &self,
+        prediction: Option<RowId>,
+        user: Option<UserPubKey>,
+    ) -> Result<Vec<(RowId, UserPubKey)>>;
     async fn get_prediction_bets_aggregated(
         &self,
         prediction: RowId,
@@ -611,6 +616,47 @@ impl DB for SQLite {
             v => Some(v.to_string()),
         };
         Ok((invoice, amount))
+    }
+    async fn get_cash_outs(
+        &self,
+        prediction: Option<RowId>,
+        user: Option<UserPubKey>,
+    ) -> Result<Vec<(RowId, UserPubKey)>> {
+        let mut stmt = String::from(
+            "SELECT user, prediction \
+                FROM cash_outs ",
+        );
+        match (prediction, user) {
+            (None, None) => {}
+            (Some(prediction), None) => stmt = stmt + "WHERE prediction = ?",
+            (None, Some(user)) => stmt = stmt + "WHERE user = ?",
+            (Some(prediction), Some(user)) => stmt = stmt + "WHERE prediction = ? AND user = ?",
+        }
+        let rows = match (prediction, user) {
+            (None, None) => self.connection.fetch_all(query(stmt.as_str())).await?,
+            (Some(prediction), None) => {
+                self.connection
+                    .fetch_all(query(stmt.as_str()).bind(prediction))
+                    .await?
+            }
+            (None, Some(user)) => {
+                self.connection
+                    .fetch_all(query(stmt.as_str()).bind(user.to_string()))
+                    .await?
+            }
+            (Some(prediction), Some(user)) => {
+                self.connection
+                    .fetch_all(query(stmt.as_str()).bind(prediction).bind(user.to_string()))
+                    .await?
+            }
+        };
+        let mut cash_outs = Vec::new();
+        for row in rows {
+            let user = UserPubKey::from_str(row.get("user")).unwrap();
+            let prediction = row.get("prediction");
+            cash_outs.push((prediction, user));
+        }
+        Ok(cash_outs)
     }
 
     async fn get_prediction_bets_aggregated(

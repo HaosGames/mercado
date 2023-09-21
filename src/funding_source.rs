@@ -1,4 +1,4 @@
-use crate::api::{Invoice, Sats};
+use crate::api::{Invoice, InvoiceState, Sats};
 use crate::mercado::MercadoError;
 use anyhow::{bail, Result};
 use async_trait::async_trait;
@@ -6,13 +6,6 @@ use secp256k1::{generate_keypair, rand};
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 
-#[derive(Debug, Clone)]
-pub enum InvoiceState {
-    Created,
-    PayInit(Sats),
-    Settled(Sats),
-    Failed,
-}
 #[async_trait]
 pub trait FundingSource {
     async fn create_invoice(&self) -> Result<Invoice>;

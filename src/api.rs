@@ -95,6 +95,11 @@ pub struct JudgeRequest {
     pub prediction: RowId,
     pub user: UserPubKey,
 }
+#[derive(Debug, Serialize, Deserialize, Clone, PartialEq)]
+pub struct CashOutRequest {
+    pub prediction: RowId,
+    pub user: UserPubKey,
+}
 
 // Responses
 #[derive(PartialEq, Debug, Serialize, Deserialize, Clone)]
@@ -113,6 +118,11 @@ pub struct UserResponse {
     pub username: Option<String>,
     pub role: UserRole,
 }
+#[derive(PartialEq, Debug, Serialize, Deserialize, Clone)]
+pub struct CashOutRespose {
+    pub amount: Sats,
+    pub invoice: Option<(Invoice, InvoiceState)>,
+}
 
 // helper functions
 pub fn map_any_err_and_code(e: anyhow::Error) -> (StatusCode, String) {
@@ -125,6 +135,13 @@ pub fn map_any_err(e: anyhow::Error) -> String {
 }
 
 // Types
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub enum InvoiceState {
+    Created,
+    PayInit(Sats),
+    Settled(Sats),
+    Failed,
+}
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Bet {
     pub user: UserPubKey,

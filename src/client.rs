@@ -141,6 +141,40 @@ impl Client {
             .await?;
         Ok(response.json::<Sats>().await?)
     }
+    pub async fn get_cash_out(
+        &self,
+        request: CashOutRequest,
+        access: AccessRequest,
+    ) -> Result<CashOutRespose> {
+        let response = self
+            .post(
+                "/get_cash_out",
+                PostRequest {
+                    data: request,
+                    access,
+                },
+                StatusCode::OK,
+            )
+            .await?;
+        Ok(response.json::<CashOutRespose>().await?)
+    }
+    pub async fn get_cash_outs(
+        &self,
+        request: PredictionUserRequest,
+        access: AccessRequest,
+    ) -> Result<Vec<(RowId, UserPubKey)>> {
+        let response = self
+            .post(
+                "/get_cash_outs",
+                PostRequest {
+                    data: request,
+                    access,
+                },
+                StatusCode::OK,
+            )
+            .await?;
+        Ok(response.json::<Vec<(RowId, UserPubKey)>>().await?)
+    }
     pub async fn force_decision_period(
         &self,
         prediction: RowId,

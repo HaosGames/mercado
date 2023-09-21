@@ -1,8 +1,5 @@
 use crate::api::*;
-use crate::{
-    db::DB,
-    funding_source::{FundingSource, InvoiceState},
-};
+use crate::{db::DB, funding_source::FundingSource};
 use anyhow::{anyhow, bail, Context, Result};
 use chrono::{DateTime, Duration, Utc};
 use log::{debug, error, trace};
@@ -615,6 +612,47 @@ impl Mercado {
             self.funding.pay_invoice(invoice, amount).await?;
             Ok(amount)
         }
+    }
+    pub async fn get_cash_out(
+        &self,
+        prediction: RowId,
+        user: UserPubKey,
+        access: AccessRequest,
+    ) -> Result<CashOutRespose> {
+        self.check_access_for_user(user.clone(), access).await?;
+        let (cash_out_invoice, amount) = self
+            .db
+            .get_cash_out(&prediction, &user)
+            .await
+            .context("no cash out")?;
+        if let Some(invoice) = cash_out_invoice {
+            let state = self.funding.check_invoice(&invoice).await?;
+            Ok(CashOutRespose {
+                amount,
+                invoice: Some((invoice, state)),
+            })
+        } else {
+            Ok(CashOutRespose {
+                amount,
+                invoice: None,
+            })
+        }
+    }
+    pub async fn get_cash_outs(
+        &self,
+        prediction: Option<RowId>,
+        user: Option<UserPubKey>,
+        access: AccessRequest,
+    ) -> Result<Vec<(RowId, UserPubKey)>> {
+        if let Some(user) = user {
+            self.check_access_for_user(user, access).await?;
+        } else {
+            if let UserRole::User = self.check_access(access).await? {
+                bail!("Access Denied: Getting cash_outs of users is prohibited");
+            }
+        }
+        let cash_outs = self.db.get_cash_outs(prediction, user).await?;
+        Ok(cash_outs)
     }
     async fn get_outcome_judge_count(&self, prediction: &RowId) -> Result<u32> {
         if let MarketState::Resolved(outcome) = self.db.get_prediction_state(prediction).await? {

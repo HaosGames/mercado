@@ -161,6 +161,30 @@ async fn cash_out_user(
     );
     Ok(Json(sats))
 }
+async fn get_cash_out(
+    State(state): State<Arc<RwLock<Mercado>>>,
+    Json(request): Json<PostRequest<CashOutRequest>>,
+) -> Result<Json<CashOutRespose>, (StatusCode, String)> {
+    let mut backend = state.write().await;
+    let (request, access) = (request.data, request.access);
+    let response = backend
+        .get_cash_out(request.prediction, request.user, access)
+        .await
+        .map_err(map_any_err_and_code)?;
+    Ok(Json(response))
+}
+async fn get_cash_outs(
+    State(state): State<Arc<RwLock<Mercado>>>,
+    Json(request): Json<PostRequest<PredictionUserRequest>>,
+) -> Result<Json<Vec<(RowId, UserPubKey)>>, (StatusCode, String)> {
+    let mut backend = state.write().await;
+    let (request, access) = (request.data, request.access);
+    let response = backend
+        .get_cash_outs(request.prediction, request.user, access)
+        .await
+        .map_err(map_any_err_and_code)?;
+    Ok(Json(response))
+}
 
 async fn get_predictions(
     State(state): State<Arc<RwLock<Mercado>>>,
@@ -394,6 +418,8 @@ async fn run_server(
         .route("/add_bet", post(add_bet))
         .route("/make_decision", post(make_decision))
         .route("/cash_out_user", post(cash_out_user))
+        .route("/get_cash_out", post(get_cash_out))
+        .route("/get_cash_outs", post(get_cash_outs))
         .route("/get_predictions", get(get_predictions))
         .route("/get_prediction_overview", post(get_prediction_overview))
         .route("/get_prediction_ratio", post(get_prediction_ratio))
