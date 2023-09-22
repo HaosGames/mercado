@@ -48,7 +48,7 @@ impl FundingSource for TestFundingSource {
         if let Some(state) = outgoing.get(invoice) {
             Ok(state.clone())
         } else {
-            bail!(MercadoError::Other("Invoice doesn't exist"))
+            bail!("Invoice doesn't exist")
         }
     }
 }

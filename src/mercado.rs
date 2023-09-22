@@ -626,7 +626,11 @@ impl Mercado {
             .await
             .context("no cash out")?;
         if let Some(invoice) = cash_out_invoice {
-            let state = self.funding.check_invoice(&invoice).await?;
+            let state = self
+                .funding
+                .check_invoice(&invoice)
+                .await
+                .context("Error checking invoice")?;
             Ok(CashOutRespose {
                 amount,
                 invoice: Some((invoice, state)),
