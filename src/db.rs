@@ -131,6 +131,8 @@ impl SQLite {
             )
             .await
             .unwrap();
+        //TODO rename fund_invoice to fund_payment
+        //TODO rename refund_invoice to refund_payment
         connection
             .execute(
                 "CREATE TABLE IF NOT EXISTS bets (\
@@ -158,6 +160,7 @@ impl SQLite {
             )
             .await
             .unwrap();
+        //TODO rename invoice to payment
         connection
             .execute(
                 "CREATE TABLE IF NOT EXISTS cash_outs (\

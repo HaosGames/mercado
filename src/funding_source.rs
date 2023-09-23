@@ -1,4 +1,4 @@
-use crate::api::{Payment, PaymentState, Sats};
+use crate::api::{Payment, PaymentDetails, PaymentState, Sats};
 use crate::mercado::MercadoError;
 use anyhow::{bail, Result};
 use async_trait::async_trait;
@@ -8,9 +8,10 @@ use std::sync::{Arc, Mutex};
 
 #[async_trait]
 pub trait FundingSource {
-    async fn create_invoice(&self) -> Result<Payment>;
-    async fn pay_invoice(&self, invoice: &Payment, amount: Sats) -> Result<PaymentState>;
-    async fn check_invoice(&self, invoice: &Payment) -> Result<PaymentState>;
+    async fn create_payment(&self) -> Result<Payment>;
+    async fn pay(&self, invoice: &Payment, amount: Sats) -> Result<PaymentState>;
+    async fn check_payment(&self, invoice: &Payment) -> Result<PaymentState>;
+    async fn get_payment_details(&self, payment: Payment) -> Result<PaymentDetails>;
 }
 #[derive(Debug, Default)]
 pub struct TestFundingSource {
@@ -19,7 +20,7 @@ pub struct TestFundingSource {
 }
 #[async_trait]
 impl FundingSource for TestFundingSource {
-    async fn create_invoice(&self) -> Result<Payment> {
+    async fn create_payment(&self) -> Result<Payment> {
         let (_, key) = generate_keypair(&mut rand::thread_rng());
         let invoice = key.to_string();
         self.incoming
@@ -28,7 +29,7 @@ impl FundingSource for TestFundingSource {
             .insert(invoice.clone(), PaymentState::Created);
         Ok(invoice)
     }
-    async fn pay_invoice(&self, invoice: &Payment, amount: Sats) -> Result<PaymentState> {
+    async fn pay(&self, invoice: &Payment, amount: Sats) -> Result<PaymentState> {
         let mut outgoing = self.outgoing.lock().unwrap();
         match outgoing.get(invoice) {
             None => {
@@ -43,12 +44,15 @@ impl FundingSource for TestFundingSource {
         }
         Ok(PaymentState::Settled(amount))
     }
-    async fn check_invoice(&self, invoice: &Payment) -> Result<PaymentState> {
+    async fn check_payment(&self, invoice: &Payment) -> Result<PaymentState> {
         let outgoing = self.outgoing.lock().unwrap();
         if let Some(state) = outgoing.get(invoice) {
             Ok(state.clone())
         } else {
             bail!("Invoice doesn't exist")
         }
+    }
+    async fn get_payment_details(&self, payment: Payment) -> Result<PaymentDetails> {
+        todo!()
     }
 }

@@ -459,7 +459,7 @@ impl Mercado {
             }
             _ => bail!(MercadoError::WrongMarketState),
         }
-        let invoice = self.funding.create_invoice().await?;
+        let invoice = self.funding.create_payment().await?;
         self.db
             .create_bet(prediction, user, bet, invoice.clone())
             .await?;
@@ -472,7 +472,7 @@ impl Mercado {
         self.check_access_for_user(bet.user, access).await?;
         match bet.state {
             BetState::FundInit => {
-                let fund_invoice_state = self.funding.check_invoice(invoice).await?;
+                let fund_invoice_state = self.funding.check_payment(invoice).await?;
                 match fund_invoice_state {
                     PaymentState::Settled(amount) => {
                         if let MarketState::Trading =
@@ -491,7 +491,7 @@ impl Mercado {
             BetState::RefundInit => {
                 let refund_invoice_state = self
                     .funding
-                    .check_invoice(&bet.refund_invoice.unwrap())
+                    .check_payment(&bet.refund_invoice.unwrap())
                     .await?;
                 match refund_invoice_state {
                     PaymentState::Settled(_refund_amount) => {
@@ -539,7 +539,7 @@ impl Mercado {
                     .init_bet_refund(invoice, Some(refund_invoice))
                     .await?;
                 self.funding
-                    .pay_invoice(&refund_invoice, bet.amount.unwrap())
+                    .pay(&refund_invoice, bet.amount.unwrap())
                     .await?;
                 Ok(BetState::RefundInit)
             }
@@ -549,7 +549,7 @@ impl Mercado {
                         .init_bet_refund(invoice, Some(refund_invoice))
                         .await?;
                     self.funding
-                        .pay_invoice(&refund_invoice, bet.amount.unwrap())
+                        .pay(&refund_invoice, bet.amount.unwrap())
                         .await?;
                     Ok(BetState::RefundInit)
                 } else {
@@ -577,16 +577,16 @@ impl Mercado {
             .await
             .context("no cash out")?;
         if let Some(cash_out_invoice) = cash_out_invoice {
-            match self.funding.check_invoice(&cash_out_invoice).await? {
+            match self.funding.check_payment(&cash_out_invoice).await? {
                 PaymentState::Created | PaymentState::Failed => {
                     if *invoice != cash_out_invoice {
                         self.db
                             .set_cash_out_invoice(prediction, user, invoice.clone())
                             .await
                             .context("couldn't set cash out invoice")?;
-                        self.funding.pay_invoice(invoice, amount).await?;
+                        self.funding.pay(invoice, amount).await?;
                     } else {
-                        self.funding.pay_invoice(&cash_out_invoice, amount).await?;
+                        self.funding.pay(&cash_out_invoice, amount).await?;
                     }
                     Ok(amount)
                 }
@@ -609,7 +609,7 @@ impl Mercado {
             self.db
                 .set_cash_out_invoice(prediction, user, invoice.clone())
                 .await?;
-            self.funding.pay_invoice(invoice, amount).await?;
+            self.funding.pay(invoice, amount).await?;
             Ok(amount)
         }
     }
@@ -628,7 +628,7 @@ impl Mercado {
         if let Some(invoice) = cash_out_invoice {
             let state = self
                 .funding
-                .check_invoice(&invoice)
+                .check_payment(&invoice)
                 .await
                 .context("Error checking invoice")?;
             Ok(CashOutRespose {
@@ -725,7 +725,7 @@ impl Mercado {
         if let UserRole::User = self.check_access(access.clone()).await? {
             bail!("Access Denied: Admin only API");
         }
-        self.funding.pay_invoice(invoice, amount).await?;
+        self.funding.pay(invoice, amount).await?;
         self.check_bet(invoice, access).await?;
         Ok(())
     }
