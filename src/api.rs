@@ -13,7 +13,7 @@ use serde::{Deserialize, Serialize};
 pub type Sats = u32;
 pub type UserPubKey = secp256k1::PublicKey;
 pub type RowId = i64;
-pub type Invoice = String;
+pub type Payment = String;
 
 // Requests
 #[derive(Debug, Deserialize, Serialize, Clone, PartialEq)]
@@ -60,13 +60,13 @@ pub struct AddBetRequest {
 }
 #[derive(Debug, Serialize, Deserialize)]
 pub struct PayBetRequest {
-    pub invoice: Invoice,
+    pub invoice: Payment,
     pub amount: Sats,
 }
 #[derive(Debug, Serialize, Deserialize)]
 pub struct CancelBetRequest {
-    pub invoice: Invoice,
-    pub refund_invoice: Invoice,
+    pub invoice: Payment,
+    pub refund_invoice: Payment,
 }
 #[derive(Debug, Serialize, Deserialize)]
 pub struct MakeDecisionRequest {
@@ -78,7 +78,7 @@ pub struct MakeDecisionRequest {
 pub struct CashOutUserRequest {
     pub prediction: RowId,
     pub user: UserPubKey,
-    pub invoice: Invoice,
+    pub invoice: Payment,
 }
 #[derive(Debug, Serialize, Deserialize, Clone, PartialEq)]
 pub struct PredictionRequest {
@@ -121,7 +121,7 @@ pub struct UserResponse {
 #[derive(PartialEq, Debug, Serialize, Deserialize, Clone)]
 pub struct CashOutRespose {
     pub amount: Sats,
-    pub invoice: Option<(Invoice, InvoiceState)>,
+    pub invoice: Option<(Payment, InvoiceState)>,
 }
 
 // helper functions
@@ -149,8 +149,8 @@ pub struct Bet {
     pub bet: bool,
     pub amount: Option<Sats>,
     pub state: BetState,
-    pub fund_invoice: Invoice,
-    pub refund_invoice: Option<Invoice>,
+    pub fund_invoice: Payment,
+    pub refund_invoice: Option<Payment>,
 }
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum BetState {

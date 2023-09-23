@@ -86,7 +86,7 @@ impl Client {
         .await?;
         Ok(())
     }
-    pub async fn add_bet(&self, request: AddBetRequest, access: AccessRequest) -> Result<Invoice> {
+    pub async fn add_bet(&self, request: AddBetRequest, access: AccessRequest) -> Result<Payment> {
         let response = self
             .post(
                 "/add_bet",

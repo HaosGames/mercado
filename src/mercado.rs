@@ -446,7 +446,7 @@ impl Mercado {
         user: &UserPubKey,
         bet: bool,
         access: AccessRequest,
-    ) -> Result<Invoice> {
+    ) -> Result<Payment> {
         self.check_access_for_user(user.clone(), access).await?;
         match self.db.get_prediction_state(prediction).await? {
             MarketState::Trading => {
@@ -510,8 +510,8 @@ impl Mercado {
     }
     pub async fn cancel_bet(
         &mut self,
-        invoice: &Invoice,
-        refund_invoice: &Invoice,
+        invoice: &Payment,
+        refund_invoice: &Payment,
         access: AccessRequest,
     ) -> Result<BetState> {
         let bet = self.db.get_bet(invoice).await?;
@@ -563,7 +563,7 @@ impl Mercado {
         &mut self,
         prediction: &RowId,
         user: &UserPubKey,
-        invoice: &Invoice,
+        invoice: &Payment,
         access: AccessRequest,
     ) -> Result<Sats> {
         self.check_access_for_user(user.clone(), access).await?;
@@ -718,7 +718,7 @@ impl Mercado {
     }
     pub async fn pay_bet(
         &self,
-        invoice: &Invoice,
+        invoice: &Payment,
         amount: Sats,
         access: AccessRequest,
     ) -> Result<()> {

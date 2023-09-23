@@ -4,7 +4,7 @@ use anyhow::{anyhow, bail, Result};
 use reqwest::{Client, Response, StatusCode, Url};
 use serde::{Deserialize, Serialize};
 
-use crate::api::Invoice;
+use crate::api::Payment;
 
 pub type PaymentHash = String;
 
@@ -124,7 +124,7 @@ impl LnBitsWallet {
         if let StatusCode::OK = response.status() {
             Ok(())
         } else {
-            bail!("{}", response.text().await?)
+            bail!("Couldn't top up wallet: {}", response.text().await?)
         }
     }
     async fn post(
@@ -151,7 +151,7 @@ impl LnBitsWallet {
             .await?;
         crate::client::bail_if_err(response, expexted_code).await
     }
-    pub async fn create_invoice(&self) -> Result<(PaymentHash, Invoice)> {
+    pub async fn create_invoice(&self) -> Result<(PaymentHash, Payment)> {
         let request = CreateInvoiceRequest {
             out: false,
             memo: "".to_string(),
@@ -163,7 +163,7 @@ impl LnBitsWallet {
         let json = response.json::<CreateInvoiceResponse>().await?;
         Ok((json.payment_hash, json.payment_request))
     }
-    pub async fn pay_invoice(&self, invoice: Invoice) -> Result<PaymentHash> {
+    pub async fn pay_invoice(&self, invoice: Payment) -> Result<PaymentHash> {
         let request = PayInvoiceRequest {
             out: true,
             bolt11: invoice,

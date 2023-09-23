@@ -106,7 +106,7 @@ async fn make_decision(
 async fn add_bet(
     State(state): State<Arc<RwLock<Mercado>>>,
     Json(request): Json<PostRequest<AddBetRequest>>,
-) -> Result<(StatusCode, Invoice), (StatusCode, Invoice)> {
+) -> Result<(StatusCode, Payment), (StatusCode, Payment)> {
     let mut backend = state.write().await;
     let (request, access) = (request.data, request.access);
     debug!(

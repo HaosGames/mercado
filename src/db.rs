@@ -35,7 +35,7 @@ pub trait DB {
     ) -> Result<()>;
     async fn get_judge_share_ppm(&self, prediction: &RowId) -> Result<u32>;
     async fn get_judge_count(&self, prediction: &RowId) -> Result<u32>;
-    async fn get_bet(&self, bet: &Invoice) -> Result<Bet>;
+    async fn get_bet(&self, bet: &Payment) -> Result<Bet>;
     async fn create_bet(
         &self,
         prediction: &RowId,
@@ -43,20 +43,20 @@ pub trait DB {
         bet: bool,
         invoice: String,
     ) -> Result<()>;
-    async fn settle_bet(&self, bet: &Invoice, amount: Sats) -> Result<()>;
-    async fn init_bet_refund(&self, bet: &Invoice, refund_invoice: Option<&Invoice>) -> Result<()>;
-    async fn settle_bet_refund(&self, bet: &Invoice) -> Result<()>;
+    async fn settle_bet(&self, bet: &Payment, amount: Sats) -> Result<()>;
+    async fn init_bet_refund(&self, bet: &Payment, refund_invoice: Option<&Payment>) -> Result<()>;
+    async fn settle_bet_refund(&self, bet: &Payment) -> Result<()>;
     async fn set_cash_out_invoice(
         &self,
         prediction: &RowId,
         user: &UserPubKey,
-        cash_out_invoice: Invoice,
+        cash_out_invoice: Payment,
     ) -> Result<()>;
     async fn get_cash_out(
         &self,
         prediction: &RowId,
         user: &UserPubKey,
-    ) -> Result<(Option<Invoice>, Sats)>;
+    ) -> Result<(Option<Payment>, Sats)>;
     async fn get_cash_outs(
         &self,
         prediction: Option<RowId>,
@@ -413,7 +413,7 @@ impl DB for SQLite {
             .get(0);
         Ok(judge_count)
     }
-    async fn get_bet(&self, invoice: &Invoice) -> Result<Bet> {
+    async fn get_bet(&self, invoice: &Payment) -> Result<Bet> {
         let stmt = query(
             "SELECT user, prediction, bet, amount, state, refund_invoice \
                 FROM bets WHERE fund_invoice = ?",
@@ -470,7 +470,7 @@ impl DB for SQLite {
             .await?;
         Ok(())
     }
-    async fn settle_bet(&self, bet: &Invoice, amount: Sats) -> Result<()> {
+    async fn settle_bet(&self, bet: &Payment, amount: Sats) -> Result<()> {
         self.connection
             .execute(
                 query(
@@ -486,7 +486,7 @@ impl DB for SQLite {
             .await?;
         Ok(())
     }
-    async fn init_bet_refund(&self, bet: &Invoice, refund_invoice: Option<&Invoice>) -> Result<()> {
+    async fn init_bet_refund(&self, bet: &Payment, refund_invoice: Option<&Payment>) -> Result<()> {
         self.connection
             .execute(
                 query(
@@ -502,7 +502,7 @@ impl DB for SQLite {
             .await?;
         Ok(())
     }
-    async fn settle_bet_refund(&self, bet: &Invoice) -> Result<()> {
+    async fn settle_bet_refund(&self, bet: &Payment) -> Result<()> {
         self.connection
             .execute(
                 query(
@@ -520,7 +520,7 @@ impl DB for SQLite {
         &self,
         prediction: &RowId,
         user: &UserPubKey,
-        cash_out_invoice: Invoice,
+        cash_out_invoice: Payment,
     ) -> Result<()> {
         let stmt = query(
             "UPDATE cash_outs \
@@ -547,7 +547,7 @@ impl DB for SQLite {
         &self,
         prediction: &RowId,
         user: &UserPubKey,
-    ) -> Result<(Option<Invoice>, Sats)> {
+    ) -> Result<(Option<Payment>, Sats)> {
         let row = self
             .connection
             .fetch_one(

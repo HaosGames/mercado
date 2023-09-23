@@ -76,15 +76,15 @@ enum Commands {
     },
     PayBet {
         #[arg(short, long)]
-        invoice: Invoice,
+        invoice: Payment,
         #[arg(short, long)]
         amount: Sats,
     },
     CancelBet {
         #[arg(short, long)]
-        invoice: Invoice,
+        invoice: Payment,
         #[arg(short, long)]
-        refund_invoice: Invoice,
+        refund_invoice: Payment,
     },
     GenerateKeys,
     Login,
