@@ -46,11 +46,6 @@ pub trait DB {
     async fn settle_bet(&self, bet: &Invoice, amount: Sats) -> Result<()>;
     async fn init_bet_refund(&self, bet: &Invoice, refund_invoice: Option<&Invoice>) -> Result<()>;
     async fn settle_bet_refund(&self, bet: &Invoice) -> Result<()>;
-    async fn get_prediction_user_bets(
-        &self,
-        user: &UserPubKey,
-        prediction: &RowId,
-    ) -> Result<Vec<Bet>>;
     async fn set_cash_out_invoice(
         &self,
         prediction: &RowId,
@@ -521,49 +516,6 @@ impl DB for SQLite {
             .await?;
         Ok(())
     }
-    async fn get_prediction_user_bets(
-        &self,
-        user: &UserPubKey,
-        prediction: &RowId,
-    ) -> Result<Vec<Bet>> {
-        let stmt = query(
-            "SELECT user, prediction, bet, amount, state, refund_invoice, fund_invoice \
-                FROM bets WHERE user = ? AND prediction = ?",
-        );
-        let mut bets = Vec::new();
-        let rows = self
-            .connection
-            .fetch_all(stmt.bind(user.to_string()).bind(prediction))
-            .await?;
-        for row in rows {
-            let user = UserPubKey::from_str(row.get("user")).unwrap();
-            let prediction = row.get("prediction");
-            let bet = row.get("bet");
-            let fund_invoice = row.get("fund_invoice");
-            let state = BetState::from_str(row.get("state"))?;
-            let amount = match state {
-                BetState::FundInit => None,
-                _ => row.get("amount"),
-            };
-            let refund_invoice = match state {
-                BetState::FundInit => None,
-                BetState::Funded => None,
-                BetState::RefundInit => row.get("refund_invoice"),
-                BetState::Refunded => row.get("refund_invoice"),
-            };
-            bets.push(Bet {
-                user,
-                prediction,
-                bet,
-                amount,
-                state,
-                fund_invoice,
-                refund_invoice,
-            });
-        }
-        Ok(bets)
-    }
-
     async fn set_cash_out_invoice(
         &self,
         prediction: &RowId,

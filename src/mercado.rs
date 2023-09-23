@@ -696,15 +696,6 @@ impl Mercado {
     pub async fn get_prediction_ratio(&self, prediction: RowId) -> Result<(Sats, Sats)> {
         self.db.get_prediction_ratio(prediction).await
     }
-    pub async fn get_prediction_user_bets(
-        &self,
-        prediction: &RowId,
-        user: &UserPubKey,
-        access: AccessRequest,
-    ) -> Result<Vec<Bet>> {
-        self.check_access_for_user(user.clone(), access).await?;
-        self.db.get_prediction_user_bets(user, prediction).await
-    }
     pub async fn get_prediction_judges(&self, prediction: RowId) -> Result<Vec<Judge>> {
         self.db.get_prediction_judges(prediction).await
     }
