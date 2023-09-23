@@ -14,6 +14,7 @@ use chrono::{Duration, TimeZone, Utc};
 use clap::Parser;
 use env_logger::{Builder, WriteStyle};
 use log::trace;
+use log::warn;
 use log::{debug, LevelFilter};
 use std::collections::HashMap;
 use std::str::FromStr;
@@ -88,10 +89,6 @@ async fn make_decision(
 ) -> Result<(), (StatusCode, String)> {
     let mut backend = state.write().await;
     let (request, access) = (request.data, request.access);
-    debug!(
-        "Voting for {} on prediction {} for judge {}",
-        request.decision, request.prediction, request.judge
-    );
     backend
         .make_decision(
             &request.prediction,
@@ -101,6 +98,10 @@ async fn make_decision(
         )
         .await
         .map_err(map_any_err_and_code)?;
+    debug!(
+        "Voted for {} on prediction {} for judge {}",
+        request.decision, request.prediction, request.judge
+    );
     Ok(())
 }
 async fn add_bet(
@@ -109,14 +110,14 @@ async fn add_bet(
 ) -> Result<(StatusCode, Payment), (StatusCode, Payment)> {
     let mut backend = state.write().await;
     let (request, access) = (request.data, request.access);
-    debug!(
-        "Adding bet on {} and prediction {} for user {}",
-        request.bet, request.prediction, request.user
-    );
     let invoice = backend
         .add_bet(&request.prediction, &request.user, request.bet, access)
         .await
         .map_err(map_any_err_and_code)?;
+    debug!(
+        "Added bet on {} and prediction {} for user {}",
+        request.bet, request.prediction, request.user
+    );
     Ok((StatusCode::CREATED, invoice))
 }
 async fn pay_bet(
@@ -125,11 +126,11 @@ async fn pay_bet(
 ) -> Result<(), (StatusCode, String)> {
     let mut backend = state.write().await;
     let (request, access) = (request.data, request.access);
-    debug!("Paying bet invoice with {} sats", request.amount);
     let invoice = backend
         .pay_bet(&request.invoice, request.amount, access)
         .await
         .map_err(map_any_err_and_code)?;
+    warn!("Funded bet as admin with {} sats", request.amount);
     Ok(())
 }
 async fn cancel_bet(
@@ -142,6 +143,10 @@ async fn cancel_bet(
         .cancel_bet(&request.invoice, &request.refund_invoice, access)
         .await
         .map_err(map_any_err_and_code)?;
+    debug!(
+        "Cancelled bet {} with refund payment {}",
+        request.invoice, request.refund_invoice
+    );
     Ok(())
 }
 
@@ -235,9 +240,9 @@ async fn force_decision_period(
     Json(request): Json<PostRequest<RowId>>,
 ) -> Result<(), (StatusCode, String)> {
     let mut backend = state.write().await;
-    debug!(
-        "Forcing the end of the decision period for prediction {:?}",
-        request
+    warn!(
+        "Forcing the end of the decision period for prediction {}",
+        request.data
     );
     backend
         .force_decision_period(&request.data, request.access)

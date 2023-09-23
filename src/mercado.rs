@@ -30,7 +30,7 @@ pub struct Prediction {
     pub cash_out: Option<CashOut>,
 }
 impl FromStr for JudgeState {
-    type Err = MercadoError;
+    type Err = anyhow::Error;
     fn from_str(s: &str) -> core::result::Result<Self, Self::Err> {
         match s {
             "Nominated" => Ok(Self::Nominated),
@@ -49,12 +49,12 @@ impl FromStr for JudgeState {
     }
 }
 impl FromStr for MarketState {
-    type Err = MercadoError;
+    type Err = anyhow::Error;
     fn from_str(s: &str) -> core::result::Result<Self, Self::Err> {
         match s {
             "WaitingForJudges" => Ok(Self::WaitingForJudges),
             "Trading" => Ok(Self::Trading),
-            "TradingStop" => Ok(Self::TradingStop),
+            "Stopped" => Ok(Self::Stopped),
             "WaitingForDecision" => Ok(Self::WaitingForDecision),
             "Resolved(true)" => Ok(Self::Resolved(true)),
             "Resolved(false)" => Ok(Self::Resolved(false)),
@@ -74,7 +74,7 @@ impl FromStr for MarketState {
     }
 }
 impl FromStr for RefundReason {
-    type Err = MercadoError;
+    type Err = anyhow::Error;
 
     fn from_str(s: &str) -> core::result::Result<Self, Self::Err> {
         match s {
@@ -105,7 +105,7 @@ pub struct Mercado {
 }
 
 impl FromStr for BetState {
-    type Err = MercadoError;
+    type Err = anyhow::Error;
     fn from_str(s: &str) -> core::result::Result<Self, Self::Err> {
         match s {
             "FundInit" => Ok(Self::FundInit),
@@ -200,7 +200,7 @@ impl Mercado {
             .context("failed to get prediction state")?
         {
             MarketState::WaitingForJudges => {}
-            _ => bail!(MercadoError::WrongMarketState),
+            _ => bail!("Wrong market state"),
         }
         //TODO Check if judge accepted via Nostr
         match self
@@ -222,7 +222,7 @@ impl Mercado {
         self.check_access_for_user(user.clone(), access).await?;
         match self.db.get_prediction_state(prediction).await? {
             MarketState::WaitingForJudges => {}
-            _ => bail!(MercadoError::WrongMarketState),
+            _ => bail!("Wrong market state"),
         }
         //TODO Check if judge refused via Nostr
         self.db
@@ -249,10 +249,19 @@ impl Mercado {
                             MarketState::Refunded(RefundReason::TimeForDecisionRanOut),
                         )
                         .await?;
-                    bail!(MercadoError::WrongMarketState);
+                    bail!("Wrong market state");
                 }
             }
-            _ => bail!(MercadoError::WrongMarketState),
+            MarketState::Trading => {
+                if self.db.get_trading_end(prediction).await? < Utc::now() {
+                    self.db
+                        .set_prediction_state(prediction, MarketState::WaitingForDecision)
+                        .await?;
+                } else {
+                    bail!("Can't make decision while market is still trading")
+                }
+            }
+            _ => bail!("Wrong market state"),
         }
         match self.db.get_judge_state(prediction.clone(), &judge).await? {
             JudgeState::Nominated | JudgeState::Refused => {
@@ -298,7 +307,7 @@ impl Mercado {
                 self.db
                     .set_prediction_state(prediction, MarketState::Refunded(RefundReason::Tie))
                     .await?;
-                bail!(MercadoError::Tie);
+                bail!("There was a decision tie between an even number of judges")
             }
             Ordering::Greater => {
                 self.db
@@ -313,7 +322,16 @@ impl Mercado {
             self.db
                 .set_prediction_state(prediction, MarketState::Refunded(RefundReason::Insolvency))
                 .await?;
-            bail!(MercadoError::Insolvency)
+            error!(
+                "For some reason the cash out calculation made the prediction {} \
+                   insolvent. Funds are being refunded",
+                prediction
+            );
+            bail!(
+                "For some reason the cash out calculation made the prediction {} \
+                  insolvent. Funds are being refunded",
+                prediction
+            )
         }
     }
     async fn calculate_cash_out(
@@ -380,7 +398,7 @@ impl Mercado {
             }
             Ok(Some(user_cash_outs))
         } else {
-            bail!(MercadoError::MarketNotResolved)
+            bail!("Market not resolved")
         }
     }
     pub fn calculate_user_cash_out(
@@ -460,10 +478,11 @@ impl Mercado {
                     self.db
                         .set_prediction_state(prediction, MarketState::WaitingForDecision)
                         .await?;
-                    bail!(MercadoError::WrongMarketState);
+                    debug!("Triggered trading end because someone tried betting after trading end");
+                    bail!("Trading ended");
                 }
             }
-            _ => bail!(MercadoError::WrongMarketState),
+            _ => bail!("Prediction has to be Trading to be able to bet on it"),
         }
         let invoice = self.funding.create_payment().await?;
         self.db
@@ -535,11 +554,11 @@ impl Mercado {
                                     MarketState::WaitingForDecision,
                                 )
                                 .await?;
-                            bail!(MercadoError::WrongMarketState);
+                            bail!("Wrong market state");
                         }
                     }
                     MarketState::Refunded(_) => {}
-                    _ => bail!(MercadoError::WrongMarketState),
+                    _ => bail!("Wrong market state"),
                 }
                 self.db
                     .init_bet_refund(invoice, Some(refund_invoice))
@@ -575,7 +594,7 @@ impl Mercado {
         self.check_access_for_user(user.clone(), access).await?;
         match self.db.get_prediction_state(prediction).await? {
             MarketState::Resolved { .. } => {}
-            _ => bail!(MercadoError::WrongMarketState),
+            _ => bail!("Wrong market state"),
         }
         let (cash_out_invoice, amount) = self
             .db
@@ -676,7 +695,7 @@ impl Mercado {
             }
             return Ok(count);
         }
-        bail!(MercadoError::WrongMarketState)
+        bail!("Wrong market state")
     }
     pub async fn get_predictions(&self) -> Result<HashMap<RowId, PredictionOverviewResponse>> {
         self.db.get_predictions().await
@@ -719,7 +738,7 @@ impl Mercado {
                     .set_prediction_state(prediction, MarketState::WaitingForDecision)
                     .await
             }
-            _ => bail!(MercadoError::WrongMarketState),
+            _ => bail!("Wrong market state"),
         }
     }
     pub async fn pay_bet(
@@ -852,80 +871,6 @@ impl Mercado {
         let bets = self.db.get_bets(prediction, user).await?;
         Ok(bets)
     }
-}
-
-#[derive(Error, Debug)]
-pub enum MercadoError {
-    #[error("")]
-    NotEnoughFunds,
-    #[error("")]
-    UserDoesntExist,
-    #[error("")]
-    UserAlreadyExists,
-    #[error("")]
-    BetDoesntExist,
-    #[error("")]
-    MarketDoesntExist,
-    #[error("")]
-    JudgeDoesntExist,
-    #[error("")]
-    NominationAlreadyAccepted,
-    #[error("")]
-    QueryFailed,
-    #[error("")]
-    WrongQueryResponseStructure,
-    #[error("")]
-    TradingStopped,
-    #[error("")]
-    JudgeHasWrongState,
-    #[error("")]
-    NotEnoughAcceptedNominations,
-    #[error("")]
-    JudgesAlreadyLockedIn,
-    #[error("")]
-    MarketNotResolved,
-    #[error("")]
-    Insolvency,
-    #[error("No definite decision could be made by the judges")]
-    Tie,
-    #[error("The market is already trading")]
-    TradingActive,
-    #[error("The market has the wrong state to execute this operation")]
-    WrongMarketState,
-    #[error("There is no CashOut for '{0}'")]
-    NoCashOutFor(UserPubKey),
-    #[error("")]
-    MarketCreation(MarketCreationError),
-    #[error("")]
-    InvoiceWasNotPaid,
-    #[error("")]
-    BetGotRefunded,
-    #[error("")]
-    SQLiteError(#[from] sqlx::Error),
-    #[error("")]
-    InvoiceDoesntExist,
-    #[error("")]
-    Other(&'static str),
-}
-impl From<MarketCreationError> for MercadoError {
-    fn from(e: MarketCreationError) -> Self {
-        Self::MarketCreation(e)
-    }
-}
-#[derive(Error, PartialEq, Debug)]
-pub enum MarketCreationError {
-    #[error("")]
-    NotEnoughJudges,
-    #[error("")]
-    EvenJudgeAmount,
-    #[error("")]
-    TradingEndToEarly,
-    #[error("")]
-    JudgeShareNotInRange,
-    #[error("")]
-    DecisionPeriodToShort,
-    #[error("")]
-    MarketAlreadyExists,
 }
 
 #[allow(unused)]

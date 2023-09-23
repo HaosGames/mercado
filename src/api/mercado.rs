@@ -44,10 +44,10 @@ pub enum JudgeState {
 pub enum MarketState {
     WaitingForJudges,
     Trading,
-    TradingStop,
     WaitingForDecision,
     Resolved(bool),
     Refunded(RefundReason),
+    Stopped,
 }
 #[derive(PartialEq, Debug, Clone, Copy, Serialize, Deserialize)]
 pub enum RefundReason {

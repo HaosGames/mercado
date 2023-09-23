@@ -1,5 +1,4 @@
 use crate::api::{Payment, PaymentDetails, PaymentState, Sats};
-use crate::mercado::MercadoError;
 use anyhow::{bail, Result};
 use async_trait::async_trait;
 use secp256k1::{generate_keypair, rand};

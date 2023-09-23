@@ -34,7 +34,7 @@ impl Display for MarketState {
         let output = match self {
             Self::WaitingForJudges => "WaitingForJudges".into(),
             Self::Trading => "Trading".into(),
-            Self::TradingStop => "TradingStop".into(),
+            Self::Stopped => "Stopped".into(),
             Self::WaitingForDecision => "WaitingForDecision".into(),
             Self::Resolved(outcome) => format!("Resolved({})", outcome),
             Self::Refunded(reason) => format!("Refunded({})", reason),
