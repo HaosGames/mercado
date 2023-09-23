@@ -121,7 +121,7 @@ pub struct UserResponse {
 #[derive(PartialEq, Debug, Serialize, Deserialize, Clone)]
 pub struct CashOutRespose {
     pub amount: Sats,
-    pub invoice: Option<(Payment, InvoiceState)>,
+    pub invoice: Option<(Payment, PaymentState)>,
 }
 
 // helper functions
@@ -136,7 +136,7 @@ pub fn map_any_err(e: anyhow::Error) -> String {
 
 // Types
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-pub enum InvoiceState {
+pub enum PaymentState {
     Created,
     PayInit(Sats),
     Settled(Sats),

@@ -474,7 +474,7 @@ impl Mercado {
             BetState::FundInit => {
                 let fund_invoice_state = self.funding.check_invoice(invoice).await?;
                 match fund_invoice_state {
-                    InvoiceState::Settled(amount) => {
+                    PaymentState::Settled(amount) => {
                         if let MarketState::Trading =
                             self.db.get_prediction_state(&bet.prediction).await?
                         {
@@ -494,11 +494,11 @@ impl Mercado {
                     .check_invoice(&bet.refund_invoice.unwrap())
                     .await?;
                 match refund_invoice_state {
-                    InvoiceState::Settled(_refund_amount) => {
+                    PaymentState::Settled(_refund_amount) => {
                         self.db.settle_bet_refund(invoice).await?;
                         Ok(BetState::Refunded)
                     }
-                    InvoiceState::Failed => {
+                    PaymentState::Failed => {
                         self.db.init_bet_refund(invoice, None).await?;
                         Ok(BetState::RefundInit)
                     }
@@ -578,7 +578,7 @@ impl Mercado {
             .context("no cash out")?;
         if let Some(cash_out_invoice) = cash_out_invoice {
             match self.funding.check_invoice(&cash_out_invoice).await? {
-                InvoiceState::Created | InvoiceState::Failed => {
+                PaymentState::Created | PaymentState::Failed => {
                     if *invoice != cash_out_invoice {
                         self.db
                             .set_cash_out_invoice(prediction, user, invoice.clone())
@@ -590,14 +590,14 @@ impl Mercado {
                     }
                     Ok(amount)
                 }
-                InvoiceState::PayInit(_) => {
+                PaymentState::PayInit(_) => {
                     if *invoice == cash_out_invoice {
                         bail!("Cash out was already initialised and is still pending")
                     } else {
                         bail!("Cash out was already initialised with another invoice which is still pending")
                     }
                 }
-                InvoiceState::Settled(_) => {
+                PaymentState::Settled(_) => {
                     if *invoice == cash_out_invoice {
                         bail!("Cash out was already successfully payed out")
                     } else {
