@@ -25,6 +25,7 @@ mod api;
 mod client;
 mod db;
 mod funding_source;
+mod lnbits;
 mod mercado;
 
 #[debug_handler]

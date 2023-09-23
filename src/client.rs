@@ -296,7 +296,7 @@ impl Client {
     }
 }
 
-async fn bail_if_err(response: Response, expexted_code: StatusCode) -> Result<Response> {
+pub async fn bail_if_err(response: Response, expexted_code: StatusCode) -> Result<Response> {
     if response.status() != expexted_code {
         bail!("{}: {}", response.status(), response.text().await?)
     } else {
