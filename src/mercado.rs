@@ -254,6 +254,12 @@ impl Mercado {
             }
             _ => bail!(MercadoError::WrongMarketState),
         }
+        match self.db.get_judge_state(prediction.clone(), &judge).await? {
+            JudgeState::Nominated | JudgeState::Refused => {
+                bail!("Judge did not accept the nomination")
+            }
+            JudgeState::Resolved(_) | JudgeState::Accepted => {}
+        }
         //TODO Check if judge made decision via Nostr
         match self
             .db
