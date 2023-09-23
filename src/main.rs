@@ -373,6 +373,8 @@ struct Args {
 async fn main() -> Result<()> {
     Builder::default()
         .filter_level(LevelFilter::Debug)
+        .filter_module("hyper::proto::h1", LevelFilter::Info)
+        .filter_module("sqlx::query", LevelFilter::Info)
         .write_style(WriteStyle::Always)
         .init();
     let cli = Args::parse();
