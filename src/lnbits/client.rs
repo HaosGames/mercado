@@ -1,12 +1,21 @@
 use std::borrow::Cow;
 
-use anyhow::{anyhow, bail, Result};
+use anyhow::{anyhow, bail, Context, Result};
 use reqwest::{Client, Response, StatusCode, Url};
 use serde::{Deserialize, Serialize};
 
 use crate::api::Payment;
 
 pub type PaymentHash = String;
+
+const SUPER_USER: &str = "3a98ce0c0b88486987d67cff59ef6094";
+const SUPER_USER_API_KEY: &str = "2321e4bf8ffe420ebff7d50102fd3f59";
+async fn read_super_user() -> Result<String> {
+    let mut file = tokio::fs::File::open("lnbits/data/.super_user").await?;
+    let mut contents = vec![];
+    tokio::io::AsyncReadExt::read_to_end(&mut file, &mut contents).await?;
+    Ok(String::from_utf8(contents)?)
+}
 
 #[derive(Debug, Clone)]
 pub struct LnBitsWallet {
@@ -57,6 +66,16 @@ impl LnBitsWallet {
             .first()
             .ok_or(anyhow!("No usr found in URL Query String"))?
             .to_string())
+    }
+    async fn query_super_user_api_key(&self, usr: String) -> Result<String> {
+        let response = self
+            .get("/wallet?usr=".to_string() + usr.as_str(), StatusCode::OK)
+            .await
+            .context("couldn't query lnbits for the super_user wallet")?;
+        let text = response.text().await?;
+        let api_key =
+            Self::extract_api_key(&text).context("couldn't extract api key from response text")?;
+        Ok(api_key)
     }
     fn extract_api_key(response_text: &String) -> Result<String> {
         let api_key_lines = response_text
@@ -227,15 +246,16 @@ mod test {
     }
     #[tokio::test]
     async fn top_up_new_wallet() {
+        let super_user = read_super_user().await.unwrap();
         let wallet = LnBitsWallet::new("http://127.0.0.1:5000".to_string())
             .await
             .unwrap();
+        let super_user_api_key = wallet
+            .query_super_user_api_key(super_user.clone())
+            .await
+            .unwrap();
         wallet
-            .top_up_wallet(
-                "5e2e759d9f334c95a636d67ea3a58b64".to_string(),
-                500,
-                "1ae3054f244a41b29605841b650841fd".to_string(),
-            )
+            .top_up_wallet(super_user.to_string(), 500, super_user_api_key.to_string())
             .await
             .unwrap();
     }
@@ -244,12 +264,13 @@ mod test {
         let sender_wallet = LnBitsWallet::new("http://127.0.0.1:5000".to_string())
             .await
             .unwrap();
+        let super_user = read_super_user().await.unwrap();
+        let super_user_api_key = sender_wallet
+            .query_super_user_api_key(super_user.clone())
+            .await
+            .unwrap();
         sender_wallet
-            .top_up_wallet(
-                "5e2e759d9f334c95a636d67ea3a58b64".to_string(),
-                500,
-                "1ae3054f244a41b29605841b650841fd".to_string(),
-            )
+            .top_up_wallet(super_user.to_string(), 500, super_user_api_key.to_string())
             .await
             .unwrap();
         let receiver_wallet = LnBitsWallet::new("http://127.0.0.1:5000".to_string())
