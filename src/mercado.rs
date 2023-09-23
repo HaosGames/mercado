@@ -315,29 +315,11 @@ impl Mercado {
                     .await?
             }
         }
-        if let Some(cash_out) = self.calculate_cash_out(prediction.clone()).await? {
-            self.db.set_cash_out(prediction, cash_out).await?;
-            Ok(())
-        } else {
-            self.db
-                .set_prediction_state(prediction, MarketState::Refunded(RefundReason::Insolvency))
-                .await?;
-            error!(
-                "For some reason the cash out calculation made the prediction {} \
-                   insolvent. Funds are being refunded",
-                prediction
-            );
-            bail!(
-                "For some reason the cash out calculation made the prediction {} \
-                  insolvent. Funds are being refunded",
-                prediction
-            )
-        }
+        let cash_out = self.calculate_cash_out(prediction.clone()).await?;
+        self.db.set_cash_out(prediction, cash_out).await?;
+        Ok(())
     }
-    async fn calculate_cash_out(
-        &self,
-        prediction: RowId,
-    ) -> Result<Option<HashMap<UserPubKey, Sats>>> {
+    async fn calculate_cash_out(&self, prediction: RowId) -> Result<HashMap<UserPubKey, Sats>> {
         if let MarketState::Resolved(outcome) = self.db.get_prediction_state(&prediction).await? {
             let bets = self
                 .db
@@ -394,9 +376,30 @@ impl Mercado {
 
             // Check solvency after calculation
             if user_cash_out_amount + judge_cash_out_amount > outcome_amount + non_outcome_amount {
-                return Ok(None);
+                self.db
+                    .set_prediction_state(
+                        &prediction,
+                        MarketState::Refunded(RefundReason::Insolvency),
+                    )
+                    .await?;
+                error!(
+                    "For some reason the cash out calculation made the prediction {} \
+                   insolvent. Bets are being refunded",
+                    prediction
+                );
+                error!("The following should be true but wasn't:");
+                error!("user_cash_out_amount + judge_cash_out_amount > outcome_amount + non_outcome_amount");
+                error!(
+                    "{} + {} > {} + {}",
+                    user_cash_out_amount, judge_cash_out_amount, outcome_amount, non_outcome_amount
+                );
+                bail!(
+                    "For some reason the cash out calculation made the prediction {} \
+                  insolvent. Bets are being refunded",
+                    prediction
+                )
             }
-            Ok(Some(user_cash_outs))
+            Ok(user_cash_outs)
         } else {
             bail!("Market not resolved")
         }
