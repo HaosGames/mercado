@@ -343,8 +343,8 @@ impl SQLite {
             bet,
             amount,
             state,
-            fund_invoice: payment.clone(),
-            refund_invoice,
+            fund_payment: payment.clone(),
+            refund_payment: refund_invoice,
         })
     }
     pub async fn create_bet(
@@ -598,8 +598,8 @@ impl SQLite {
                 bet,
                 amount,
                 state,
-                fund_invoice,
-                refund_invoice,
+                fund_payment: fund_invoice,
+                refund_payment: refund_invoice,
             });
         }
         Ok(bets)

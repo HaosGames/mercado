@@ -520,7 +520,7 @@ impl Mercado {
             BetState::RefundInit => {
                 let refund_invoice_state = self
                     .funding
-                    .check_payment(&bet.refund_invoice.unwrap())
+                    .check_payment(&bet.refund_payment.unwrap())
                     .await?;
                 match refund_invoice_state {
                     PaymentState::Settled(_refund_amount) => {
@@ -573,7 +573,7 @@ impl Mercado {
                 Ok(BetState::RefundInit)
             }
             BetState::RefundInit => {
-                if let None = bet.refund_invoice {
+                if let None = bet.refund_payment {
                     self.db
                         .init_bet_refund(invoice, Some(refund_invoice))
                         .await?;

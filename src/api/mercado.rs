@@ -12,8 +12,8 @@ pub struct Bet {
     pub bet: bool,
     pub amount: Option<Sats>,
     pub state: BetState,
-    pub fund_invoice: Payment,
-    pub refund_invoice: Option<Payment>,
+    pub fund_payment: Payment,
+    pub refund_payment: Option<Payment>,
 }
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum BetState {
