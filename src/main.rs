@@ -396,7 +396,7 @@ async fn run_server(
 ) -> (u16, JoinHandle<()>) {
     let state = Arc::new(RwLock::new(
         Mercado::new(
-            Box::new(SQLite::new(db_conn).await),
+            SQLite::new(db_conn).await,
             Box::new(TestFundingSource::default()),
             admin,
             test,

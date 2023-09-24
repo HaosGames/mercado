@@ -1,5 +1,6 @@
 use crate::api::*;
-use crate::{db::DB, funding_source::FundingSource};
+use crate::db::SQLite;
+use crate::funding_source::FundingSource;
 use anyhow::{anyhow, bail, Context, Result};
 use chrono::{DateTime, Duration, Utc};
 use log::{debug, error, trace};
@@ -99,7 +100,7 @@ pub struct CashOut {
     invoice: Option<String>,
 }
 pub struct Mercado {
-    db: Arc<Box<dyn DB + Send + Sync>>,
+    db: SQLite,
     funding: Arc<Box<dyn FundingSource + Send + Sync>>,
     test: bool,
 }
@@ -118,13 +119,13 @@ impl FromStr for BetState {
 }
 impl Mercado {
     pub async fn new(
-        db: Box<dyn DB + Send + Sync>,
+        db: SQLite,
         funding: Box<dyn FundingSource + Send + Sync>,
         admins: Vec<String>,
         test: bool,
     ) -> Result<Self> {
         let me = Self {
-            db: Arc::new(db),
+            db,
             funding: Arc::new(funding),
             test,
         };
@@ -904,7 +905,7 @@ mod test {
         let (_, j3) = generate_keypair(&mut rand::thread_rng());
 
         let mut market = Mercado::new(
-            Box::new(SQLite::new(None).await),
+            SQLite::new(None).await,
             Box::new(TestFundingSource::default()),
             vec![],
             true,

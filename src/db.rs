@@ -9,103 +9,6 @@ use sqlx::{query, Executor, Pool, Row, SqlitePool};
 use std::collections::HashMap;
 use std::str::FromStr;
 
-#[async_trait]
-pub trait DB {
-    async fn add_prediction(&self, prediction: Prediction) -> Result<RowId>;
-    async fn get_prediction_state(&self, prediction: &RowId) -> Result<MarketState>;
-    async fn set_prediction_state(&self, prediction: &RowId, state: MarketState) -> Result<()>;
-    async fn get_judge_state(&self, prediction: RowId, user: &UserPubKey) -> Result<JudgeState>;
-    async fn set_judge_state(
-        &self,
-        prediction: &RowId,
-        user: &UserPubKey,
-        state: JudgeState,
-    ) -> Result<()>;
-    async fn get_trading_end(&self, prediction: &RowId) -> Result<DateTime<Utc>>;
-    async fn get_decision_period(&self, prediction: &RowId) -> Result<Duration>;
-    async fn get_prediction_judges_mapped(
-        &self,
-        prediction: &RowId,
-    ) -> Result<HashMap<UserPubKey, JudgeState>>;
-    async fn get_judge_states(&self, prediction: &RowId) -> Result<Vec<JudgeState>>;
-    async fn set_cash_out(
-        &self,
-        prediction: &RowId,
-        cash_out: HashMap<UserPubKey, Sats>,
-    ) -> Result<()>;
-    async fn get_judge_share_ppm(&self, prediction: &RowId) -> Result<u32>;
-    async fn get_judge_count(&self, prediction: &RowId) -> Result<u32>;
-    async fn get_bet(&self, bet: &Payment) -> Result<Bet>;
-    async fn create_bet(
-        &self,
-        prediction: &RowId,
-        user: &UserPubKey,
-        bet: bool,
-        invoice: String,
-    ) -> Result<()>;
-    async fn settle_bet(&self, bet: &Payment, amount: Sats) -> Result<()>;
-    async fn init_bet_refund(&self, bet: &Payment, refund_invoice: Option<&Payment>) -> Result<()>;
-    async fn settle_bet_refund(&self, bet: &Payment) -> Result<()>;
-    async fn set_cash_out_invoice(
-        &self,
-        prediction: &RowId,
-        user: &UserPubKey,
-        cash_out_invoice: Payment,
-    ) -> Result<()>;
-    async fn get_cash_out(
-        &self,
-        prediction: &RowId,
-        user: &UserPubKey,
-    ) -> Result<(Option<Payment>, Sats)>;
-    async fn get_cash_outs(
-        &self,
-        prediction: Option<RowId>,
-        user: Option<UserPubKey>,
-    ) -> Result<Vec<(RowId, UserPubKey)>>;
-    async fn get_prediction_bets_aggregated(
-        &self,
-        prediction: RowId,
-        outcome: bool,
-    ) -> Result<HashMap<UserPubKey, Sats>>;
-    async fn get_prediction_bets(&self, prediction: RowId) -> Result<Vec<Bet>>;
-    async fn get_predictions(&self) -> Result<HashMap<RowId, PredictionOverviewResponse>>;
-    async fn get_prediction_overview(
-        &self,
-        prediction: RowId,
-    ) -> Result<PredictionOverviewResponse>;
-    async fn get_prediction_judges(&self, prediction: RowId) -> Result<Vec<Judge>>;
-    async fn get_prediction_ratio(&self, prediction: RowId) -> Result<(Sats, Sats)>;
-
-    async fn update_user_role(&self, user: UserPubKey, role: UserRole) -> Result<()>;
-    async fn create_session(&self, user: UserPubKey, challenge: String) -> Result<()>;
-    async fn update_access_token(
-        &self,
-        user: UserPubKey,
-        sig: Signature,
-        challenge: String,
-    ) -> Result<()>;
-    async fn update_access(&self, user: UserPubKey, challenge: String) -> Result<()>;
-    async fn get_last_access(
-        &self,
-        user: UserPubKey,
-        challenge: String,
-    ) -> Result<(Signature, DateTime<Utc>)>;
-    async fn update_username(&self, user: UserPubKey, name: String) -> Result<()>;
-    async fn get_user_role(&self, user: UserPubKey) -> Result<UserRole>;
-    async fn create_user(&self, user: UserPubKey) -> Result<()>;
-    async fn get_username(&self, user: UserPubKey) -> Result<Option<String>>;
-    async fn get_user(&self, user: UserPubKey) -> Result<UserResponse>;
-    async fn get_judges(
-        &self,
-        prediction: Option<RowId>,
-        user: Option<UserPubKey>,
-    ) -> Result<Vec<JudgePublic>>;
-    async fn get_bets(
-        &self,
-        prediction: Option<RowId>,
-        user: Option<UserPubKey>,
-    ) -> Result<Vec<Bet>>;
-}
 pub struct SQLite {
     connection: SqlitePool,
 }
@@ -198,10 +101,7 @@ impl SQLite {
             .unwrap();
         Self { connection }
     }
-}
-#[async_trait]
-impl DB for SQLite {
-    async fn add_prediction(&self, prediction: Prediction) -> Result<RowId> {
+    pub async fn add_prediction(&self, prediction: Prediction) -> Result<RowId> {
         let id = self
             .connection
             .execute(
@@ -237,7 +137,7 @@ impl DB for SQLite {
         }
         Ok(id)
     }
-    async fn get_prediction_state(&self, prediction: &RowId) -> Result<MarketState> {
+    pub async fn get_prediction_state(&self, prediction: &RowId) -> Result<MarketState> {
         let state = MarketState::from_str(
             self.connection
                 .fetch_one(query("SELECT state FROM predictions WHERE rowid = ?").bind(prediction))
@@ -247,7 +147,7 @@ impl DB for SQLite {
         )?;
         Ok(state)
     }
-    async fn set_prediction_state(&self, prediction: &RowId, state: MarketState) -> Result<()> {
+    pub async fn set_prediction_state(&self, prediction: &RowId, state: MarketState) -> Result<()> {
         self.connection
             .execute(
                 query(
@@ -261,7 +161,11 @@ impl DB for SQLite {
             .await?;
         Ok(())
     }
-    async fn get_judge_state(&self, prediction: RowId, user: &UserPubKey) -> Result<JudgeState> {
+    pub async fn get_judge_state(
+        &self,
+        prediction: RowId,
+        user: &UserPubKey,
+    ) -> Result<JudgeState> {
         let state = JudgeState::from_str(
             self.connection
                 .fetch_one(
@@ -294,7 +198,7 @@ impl DB for SQLite {
         }
         Ok(state)
     }
-    async fn set_judge_state(
+    pub async fn set_judge_state(
         &self,
         prediction: &RowId,
         user: &UserPubKey,
@@ -327,7 +231,7 @@ impl DB for SQLite {
         }
         Ok(())
     }
-    async fn get_trading_end(&self, prediction: &RowId) -> Result<DateTime<Utc>> {
+    pub async fn get_trading_end(&self, prediction: &RowId) -> Result<DateTime<Utc>> {
         let trading_end = self
             .connection
             .fetch_one(query("SELECT trading_end FROM predictions WHERE rowid=?").bind(prediction))
@@ -335,7 +239,7 @@ impl DB for SQLite {
             .get(0);
         Ok(Utc.timestamp_opt(trading_end, 0).unwrap().into())
     }
-    async fn get_decision_period(&self, prediction: &RowId) -> Result<Duration> {
+    pub async fn get_decision_period(&self, prediction: &RowId) -> Result<Duration> {
         let decision_period = self
             .connection
             .fetch_one(
@@ -345,7 +249,7 @@ impl DB for SQLite {
             .get(0);
         Ok(Duration::seconds(decision_period))
     }
-    async fn get_prediction_judges_mapped(
+    pub async fn get_prediction_judges_mapped(
         &self,
         prediction: &RowId,
     ) -> Result<HashMap<UserPubKey, JudgeState>> {
@@ -371,7 +275,7 @@ impl DB for SQLite {
         }
         Ok(judges)
     }
-    async fn get_judge_states(&self, prediction: &RowId) -> Result<Vec<JudgeState>> {
+    pub async fn get_judge_states(&self, prediction: &RowId) -> Result<Vec<JudgeState>> {
         Ok(self
             .get_prediction_judges_mapped(prediction)
             .await?
@@ -379,7 +283,7 @@ impl DB for SQLite {
             .cloned()
             .collect())
     }
-    async fn set_cash_out(
+    pub async fn set_cash_out(
         &self,
         prediction: &RowId,
         cash_out: HashMap<UserPubKey, Sats>,
@@ -398,7 +302,7 @@ impl DB for SQLite {
         }
         Ok(())
     }
-    async fn get_judge_share_ppm(&self, prediction: &RowId) -> Result<u32> {
+    pub async fn get_judge_share_ppm(&self, prediction: &RowId) -> Result<u32> {
         let judge_share_ppm = self
             .connection
             .fetch_one(
@@ -408,7 +312,7 @@ impl DB for SQLite {
             .get(0);
         Ok(judge_share_ppm)
     }
-    async fn get_judge_count(&self, prediction: &RowId) -> Result<u32> {
+    pub async fn get_judge_count(&self, prediction: &RowId) -> Result<u32> {
         let judge_count = self
             .connection
             .fetch_one(query("SELECT judge_count FROM predictions WHERE rowid=?").bind(prediction))
@@ -416,7 +320,7 @@ impl DB for SQLite {
             .get(0);
         Ok(judge_count)
     }
-    async fn get_bet(&self, invoice: &Payment) -> Result<Bet> {
+    pub async fn get_bet(&self, invoice: &Payment) -> Result<Bet> {
         let stmt = query(
             "SELECT user, prediction, bet, amount, state, refund_invoice \
                 FROM bets WHERE fund_invoice = ?",
@@ -446,7 +350,7 @@ impl DB for SQLite {
             refund_invoice,
         })
     }
-    async fn create_bet(
+    pub async fn create_bet(
         &self,
         prediction: &RowId,
         user: &UserPubKey,
@@ -473,7 +377,7 @@ impl DB for SQLite {
             .await?;
         Ok(())
     }
-    async fn settle_bet(&self, bet: &Payment, amount: Sats) -> Result<()> {
+    pub async fn settle_bet(&self, bet: &Payment, amount: Sats) -> Result<()> {
         self.connection
             .execute(
                 query(
@@ -489,7 +393,11 @@ impl DB for SQLite {
             .await?;
         Ok(())
     }
-    async fn init_bet_refund(&self, bet: &Payment, refund_invoice: Option<&Payment>) -> Result<()> {
+    pub async fn init_bet_refund(
+        &self,
+        bet: &Payment,
+        refund_invoice: Option<&Payment>,
+    ) -> Result<()> {
         self.connection
             .execute(
                 query(
@@ -505,7 +413,7 @@ impl DB for SQLite {
             .await?;
         Ok(())
     }
-    async fn settle_bet_refund(&self, bet: &Payment) -> Result<()> {
+    pub async fn settle_bet_refund(&self, bet: &Payment) -> Result<()> {
         self.connection
             .execute(
                 query(
@@ -519,7 +427,7 @@ impl DB for SQLite {
             .await?;
         Ok(())
     }
-    async fn set_cash_out_invoice(
+    pub async fn set_cash_out_invoice(
         &self,
         prediction: &RowId,
         user: &UserPubKey,
@@ -546,7 +454,7 @@ impl DB for SQLite {
         Ok(())
     }
 
-    async fn get_cash_out(
+    pub async fn get_cash_out(
         &self,
         prediction: &RowId,
         user: &UserPubKey,
@@ -572,7 +480,7 @@ impl DB for SQLite {
         };
         Ok((invoice, amount))
     }
-    async fn get_cash_outs(
+    pub async fn get_cash_outs(
         &self,
         prediction: Option<RowId>,
         user: Option<UserPubKey>,
@@ -614,7 +522,7 @@ impl DB for SQLite {
         Ok(cash_outs)
     }
 
-    async fn get_prediction_bets_aggregated(
+    pub async fn get_prediction_bets_aggregated(
         &self,
         prediction: RowId,
         outcome: bool,
@@ -637,7 +545,7 @@ impl DB for SQLite {
         }
         Ok(aggregated_bets)
     }
-    async fn get_bets(
+    pub async fn get_bets(
         &self,
         prediction: Option<RowId>,
         user: Option<UserPubKey>,
@@ -699,10 +607,10 @@ impl DB for SQLite {
         }
         Ok(bets)
     }
-    async fn get_prediction_bets(&self, prediction: RowId) -> Result<Vec<Bet>> {
+    pub async fn get_prediction_bets(&self, prediction: RowId) -> Result<Vec<Bet>> {
         self.get_bets(Some(prediction), None).await
     }
-    async fn get_predictions(&self) -> Result<HashMap<RowId, PredictionOverviewResponse>> {
+    pub async fn get_predictions(&self) -> Result<HashMap<RowId, PredictionOverviewResponse>> {
         let stmt = query(
             "SELECT predictions.rowid, predictions.prediction, judge_share_ppm, judge_count, trading_end, \
             decision_period, predictions.state, bet, sum(amount) AS amount \
@@ -737,7 +645,7 @@ impl DB for SQLite {
         }
         Ok(predictions)
     }
-    async fn get_prediction_overview(
+    pub async fn get_prediction_overview(
         &self,
         prediction: RowId,
     ) -> Result<PredictionOverviewResponse> {
@@ -758,7 +666,7 @@ impl DB for SQLite {
         };
         Ok(overview)
     }
-    async fn get_prediction_judges(&self, prediction: RowId) -> Result<Vec<Judge>> {
+    pub async fn get_prediction_judges(&self, prediction: RowId) -> Result<Vec<Judge>> {
         let stmt = query(
             "SELECT user, prediction, state, decision \
             FROM judges \
@@ -775,7 +683,7 @@ impl DB for SQLite {
             .collect();
         Ok(judges)
     }
-    async fn get_prediction_ratio(&self, prediction: RowId) -> Result<(Sats, Sats)> {
+    pub async fn get_prediction_ratio(&self, prediction: RowId) -> Result<(Sats, Sats)> {
         let stmt_true = query(
             "SELECT SUM(amount) AS amount \
             FROM bets \
@@ -796,7 +704,7 @@ impl DB for SQLite {
             .await?;
         Ok((row_true.get("amount"), row_false.get("amount")))
     }
-    async fn update_user_role(&self, user: UserPubKey, role: UserRole) -> Result<()> {
+    pub async fn update_user_role(&self, user: UserPubKey, role: UserRole) -> Result<()> {
         self.create_user(user).await?;
         let stmt = query(
             "UPDATE users SET \
@@ -808,7 +716,7 @@ impl DB for SQLite {
             .await?;
         Ok(())
     }
-    async fn get_user_role(&self, user: UserPubKey) -> Result<UserRole> {
+    pub async fn get_user_role(&self, user: UserPubKey) -> Result<UserRole> {
         let stmt = query("SELECT role FROM users WHERE pubkey = ?");
         let row = self
             .connection
@@ -817,7 +725,7 @@ impl DB for SQLite {
         let role: String = row.get("role");
         Ok(UserRole::from_str(role.as_str())?)
     }
-    async fn create_session(&self, user: UserPubKey, challenge: String) -> Result<()> {
+    pub async fn create_session(&self, user: UserPubKey, challenge: String) -> Result<()> {
         self.create_user(user).await?;
         let stmt = query(
             "INSERT INTO sessions \
@@ -829,7 +737,7 @@ impl DB for SQLite {
             .await?;
         Ok(())
     }
-    async fn update_access_token(
+    pub async fn update_access_token(
         &self,
         user: UserPubKey,
         sig: Signature,
@@ -851,7 +759,7 @@ impl DB for SQLite {
             .await?;
         Ok(())
     }
-    async fn update_access(&self, user: UserPubKey, challenge: String) -> Result<()> {
+    pub async fn update_access(&self, user: UserPubKey, challenge: String) -> Result<()> {
         let stmt = query(
             "UPDATE sessions SET \
             last_access = ? \
@@ -866,7 +774,7 @@ impl DB for SQLite {
             .await?;
         Ok(())
     }
-    async fn get_last_access(
+    pub async fn get_last_access(
         &self,
         user: UserPubKey,
         challenge: String,
@@ -887,7 +795,7 @@ impl DB for SQLite {
             Utc.timestamp_opt(last_access, 0).unwrap(),
         ))
     }
-    async fn update_username(&self, user: UserPubKey, name: String) -> Result<()> {
+    pub async fn update_username(&self, user: UserPubKey, name: String) -> Result<()> {
         let stmt = query(
             "UPDATE users SET \
             username = ? \
@@ -898,7 +806,7 @@ impl DB for SQLite {
             .await?;
         Ok(())
     }
-    async fn create_user(&self, user: UserPubKey) -> Result<()> {
+    pub async fn create_user(&self, user: UserPubKey) -> Result<()> {
         let stmt = query(
             "INSERT OR IGNORE INTO users \
             (pubkey) VALUES (?)",
@@ -906,7 +814,7 @@ impl DB for SQLite {
         self.connection.execute(stmt.bind(user.to_string())).await?;
         Ok(())
     }
-    async fn get_username(&self, user: UserPubKey) -> Result<Option<String>> {
+    pub async fn get_username(&self, user: UserPubKey) -> Result<Option<String>> {
         let stmt = query("SELECT username FROM users WHERE pubkey = ?");
         let row = self
             .connection
@@ -918,7 +826,7 @@ impl DB for SQLite {
             Ok(None)
         }
     }
-    async fn get_user(&self, user: UserPubKey) -> Result<UserResponse> {
+    pub async fn get_user(&self, user: UserPubKey) -> Result<UserResponse> {
         let stmt = query("SELECT username, role FROM users WHERE pubkey = ?");
         let row = self
             .connection
@@ -930,7 +838,7 @@ impl DB for SQLite {
             role: UserRole::from_str(row.get("role"))?,
         })
     }
-    async fn get_judges(
+    pub async fn get_judges(
         &self,
         prediction: Option<RowId>,
         user: Option<UserPubKey>,
