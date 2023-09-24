@@ -8,8 +8,8 @@ use std::sync::{Arc, Mutex};
 #[async_trait]
 pub trait FundingSource {
     async fn create_payment(&self) -> Result<Payment>;
-    async fn pay(&self, invoice: &Payment, amount: Sats) -> Result<PaymentState>;
-    async fn check_payment(&self, invoice: &Payment) -> Result<PaymentState>;
+    async fn pay(&self, payment: &Payment, amount: Sats) -> Result<PaymentState>;
+    async fn check_payment(&self, payment: &Payment) -> Result<PaymentState>;
     async fn get_payment_details(&self, payment: Payment) -> Result<PaymentDetails>;
 }
 #[derive(Debug, Default)]
@@ -28,24 +28,24 @@ impl FundingSource for TestFundingSource {
             .insert(invoice.clone(), PaymentState::Created);
         Ok(invoice)
     }
-    async fn pay(&self, invoice: &Payment, amount: Sats) -> Result<PaymentState> {
+    async fn pay(&self, payment: &Payment, amount: Sats) -> Result<PaymentState> {
         let mut outgoing = self.outgoing.lock().unwrap();
-        match outgoing.get(invoice) {
+        match outgoing.get(payment) {
             None => {
-                outgoing.insert(invoice.clone(), PaymentState::Settled(amount));
+                outgoing.insert(payment.clone(), PaymentState::Settled(amount));
             }
             Some(state) => match state {
                 PaymentState::Created | PaymentState::Failed => {
-                    outgoing.insert(invoice.clone(), PaymentState::Settled(amount));
+                    outgoing.insert(payment.clone(), PaymentState::Settled(amount));
                 }
                 state => return Ok(state.clone()),
             },
         }
         Ok(PaymentState::Settled(amount))
     }
-    async fn check_payment(&self, invoice: &Payment) -> Result<PaymentState> {
+    async fn check_payment(&self, payment: &Payment) -> Result<PaymentState> {
         let outgoing = self.outgoing.lock().unwrap();
-        if let Some(state) = outgoing.get(invoice) {
+        if let Some(state) = outgoing.get(payment) {
             Ok(state.clone())
         } else {
             bail!("Invoice doesn't exist")
