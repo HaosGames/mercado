@@ -610,7 +610,7 @@ impl Mercado {
                 PaymentState::Created | PaymentState::Failed => {
                     if *invoice != cash_out_invoice {
                         self.db
-                            .set_cash_out_invoice(prediction, user, invoice.clone())
+                            .set_cash_out_payment(prediction, user, invoice.clone())
                             .await
                             .context("couldn't set cash out invoice")?;
                         self.funding.pay(invoice, amount).await?;
@@ -636,7 +636,7 @@ impl Mercado {
             }
         } else {
             self.db
-                .set_cash_out_invoice(prediction, user, invoice.clone())
+                .set_cash_out_payment(prediction, user, invoice.clone())
                 .await?;
             self.funding.pay(invoice, amount).await?;
             Ok(amount)

@@ -34,8 +34,6 @@ impl SQLite {
             )
             .await
             .unwrap();
-        //TODO rename fund_invoice to fund_payment
-        //TODO rename refund_invoice to refund_payment
         connection
             .execute(
                 "CREATE TABLE IF NOT EXISTS bets (\
@@ -44,9 +42,9 @@ impl SQLite {
             bet NOT NULL,\
             amount,\
             state NOT NULL,\
-            fund_invoice,\
-            refund_invoice,\
-            PRIMARY KEY (fund_invoice)\
+            fund_payment,\
+            refund_payment,\
+            PRIMARY KEY (fund_payment)\
             )",
             )
             .await
@@ -63,14 +61,13 @@ impl SQLite {
             )
             .await
             .unwrap();
-        //TODO rename invoice to payment
         connection
             .execute(
                 "CREATE TABLE IF NOT EXISTS cash_outs (\
             user,\
             prediction,\
             amount NOT NULL,\
-            invoice,\
+            payment,\
             PRIMARY KEY (user,prediction)\
             )",
             )
@@ -320,12 +317,12 @@ impl SQLite {
             .get(0);
         Ok(judge_count)
     }
-    pub async fn get_bet(&self, invoice: &Payment) -> Result<Bet> {
+    pub async fn get_bet(&self, payment: &Payment) -> Result<Bet> {
         let stmt = query(
-            "SELECT user, prediction, bet, amount, state, refund_invoice \
-                FROM bets WHERE fund_invoice = ?",
+            "SELECT user, prediction, bet, amount, state, refund_payment \
+                FROM bets WHERE fund_payment = ?",
         );
-        let row = self.connection.fetch_one(stmt.bind(invoice)).await?;
+        let row = self.connection.fetch_one(stmt.bind(payment)).await?;
         let user = UserPubKey::from_str(row.get("user")).unwrap();
         let prediction = row.get("prediction");
         let bet = row.get("bet");
@@ -337,8 +334,8 @@ impl SQLite {
         let refund_invoice = match state {
             BetState::FundInit => None,
             BetState::Funded => None,
-            BetState::RefundInit => row.get("refund_invoice"),
-            BetState::Refunded => row.get("refund_invoice"),
+            BetState::RefundInit => row.get("refund_payment"),
+            BetState::Refunded => row.get("refund_payment"),
         };
         Ok(Bet {
             user,
@@ -346,7 +343,7 @@ impl SQLite {
             bet,
             amount,
             state,
-            fund_invoice: invoice.clone(),
+            fund_invoice: payment.clone(),
             refund_invoice,
         })
     }
@@ -355,7 +352,7 @@ impl SQLite {
         prediction: &RowId,
         user: &UserPubKey,
         bet: bool,
-        invoice: String,
+        payment: String,
     ) -> Result<()> {
         self.connection
             .execute(
@@ -364,14 +361,14 @@ impl SQLite {
                 user, \
                 prediction, \
                 bet, \
-                fund_invoice, \
+                fund_payment, \
                 state) \
                 VALUES (?,?,?,?,?)",
                 )
                 .bind(user.to_string())
                 .bind(prediction)
                 .bind(bet)
-                .bind(invoice)
+                .bind(payment)
                 .bind(BetState::FundInit.to_string()),
             )
             .await?;
@@ -384,7 +381,7 @@ impl SQLite {
                     "UPDATE bets SET \
                 state = ?, \
                 amount = ? \
-                WHERE fund_invoice=?",
+                WHERE fund_payment=?",
                 )
                 .bind(BetState::Funded.to_string())
                 .bind(amount)
@@ -396,18 +393,18 @@ impl SQLite {
     pub async fn init_bet_refund(
         &self,
         bet: &Payment,
-        refund_invoice: Option<&Payment>,
+        refund_payment: Option<&Payment>,
     ) -> Result<()> {
         self.connection
             .execute(
                 query(
                     "UPDATE bets SET \
                 state = ?, \
-                refund_invoice = ? \
-                WHERE fund_invoice = ?",
+                refund_payment = ? \
+                WHERE fund_payment = ?",
                 )
                 .bind(BetState::RefundInit.to_string())
-                .bind(refund_invoice)
+                .bind(refund_payment)
                 .bind(bet),
             )
             .await?;
@@ -419,7 +416,7 @@ impl SQLite {
                 query(
                     "UPDATE bets SET \
                 state = ?, \
-                WHERE fund_invoice = ?",
+                WHERE fund_payment = ?",
                 )
                 .bind(BetState::Refunded.to_string())
                 .bind(bet),
@@ -427,28 +424,28 @@ impl SQLite {
             .await?;
         Ok(())
     }
-    pub async fn set_cash_out_invoice(
+    pub async fn set_cash_out_payment(
         &self,
         prediction: &RowId,
         user: &UserPubKey,
-        cash_out_invoice: Payment,
+        cash_out_payment: Payment,
     ) -> Result<()> {
         let stmt = query(
             "UPDATE cash_outs \
-                SET invoice = ? \
+                SET payment = ? \
                 WHERE user = ? AND prediction = ?",
         );
         self.connection
             .execute(
-                stmt.bind(cash_out_invoice.clone())
+                stmt.bind(cash_out_payment.clone())
                     .bind(user.to_string())
                     .bind(prediction),
             )
             .await
             .with_context(|| {
                 format!(
-                    "couldn't set cash out invoice {}, for user {} and prediction {}",
-                    cash_out_invoice, user, prediction
+                    "couldn't set cash out payment {}, for user {} and prediction {}",
+                    cash_out_payment, user, prediction
                 )
             })?;
         Ok(())
@@ -462,7 +459,7 @@ impl SQLite {
         let row = self
             .connection
             .fetch_one(
-                query("SELECT invoice, amount FROM cash_outs WHERE user = ? AND prediction = ?")
+                query("SELECT payment, amount FROM cash_outs WHERE user = ? AND prediction = ?")
                     .bind(user.to_string())
                     .bind(prediction),
             )
@@ -474,11 +471,11 @@ impl SQLite {
                 )
             })?;
         let amount = row.get("amount");
-        let invoice = match row.get("invoice") {
+        let payment = match row.get("payment") {
             "" => None,
             v => Some(v.to_string()),
         };
-        Ok((invoice, amount))
+        Ok((payment, amount))
     }
     pub async fn get_cash_outs(
         &self,
@@ -551,7 +548,7 @@ impl SQLite {
         user: Option<UserPubKey>,
     ) -> Result<Vec<Bet>> {
         let mut stmt = String::from(
-            "SELECT user, prediction, bet, amount, state, refund_invoice, fund_invoice \
+            "SELECT user, prediction, bet, amount, state, refund_payment, fund_payment \
                 FROM bets ",
         );
         match (prediction, user) {
@@ -583,7 +580,7 @@ impl SQLite {
             let user = UserPubKey::from_str(row.get("user")).unwrap();
             let prediction = row.get("prediction");
             let bet = row.get("bet");
-            let fund_invoice = row.get("fund_invoice");
+            let fund_invoice = row.get("fund_payment");
             let state: BetState = FromStr::from_str(row.get("state"))?;
             let amount = match state {
                 BetState::FundInit => None,
@@ -592,8 +589,8 @@ impl SQLite {
             let refund_invoice = match state {
                 BetState::FundInit => None,
                 BetState::Funded => None,
-                BetState::RefundInit => row.get("refund_invoice"),
-                BetState::Refunded => row.get("refund_invoice"),
+                BetState::RefundInit => row.get("refund_payment"),
+                BetState::Refunded => row.get("refund_payment"),
             };
             bets.push(Bet {
                 user,
