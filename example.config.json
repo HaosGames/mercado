@@ -1,0 +1,13 @@
+{
+  "admins": [],
+  "port": 8081,
+  "db": "data.db",
+  "funding_source": "Lnbits",
+  "lnbits": {
+    "url": "http://127.0.0.1:5000",
+    "usr": "8fce731516de42adb3807b2bfcb3501b",
+    "wallet_id": "088d63296576458faf40817ce1b2f071",
+    "api_key": "0cd76658f77e4655a872fbdde04e4c7c"
+  },
+  "disable_auth": false
+}

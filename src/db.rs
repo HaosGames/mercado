@@ -9,12 +9,11 @@ use sqlx::{query, Executor, Pool, Row, SqlitePool};
 use std::collections::HashMap;
 use std::str::FromStr;
 
-pub struct SQLite {
+pub struct DB {
     connection: SqlitePool,
 }
-impl SQLite {
-    pub async fn new(db_conn: Option<String>) -> Self {
-        let db_conn = db_conn.unwrap_or("sqlite::memory:".to_string());
+impl DB {
+    pub async fn new(db_conn: String) -> Self {
         let options = SqliteConnectOptions::from_str(db_conn.as_str())
             .unwrap()
             .create_if_missing(true)

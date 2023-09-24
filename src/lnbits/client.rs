@@ -90,7 +90,7 @@ impl LnBitsWallet {
             .collect::<Vec<&str>>();
         let key_line = api_key_lines
             .first()
-            .ok_or(anyhow!("No API Key found in Response"))?;
+            .ok_or(anyhow!("No api key found in response body"))?;
         let api_key = key_line
             .trim_end_matches("</em><br />")
             .trim_start_matches("    <strong>Admin key: </strong><em>")
@@ -113,7 +113,7 @@ impl LnBitsWallet {
             .collect::<Vec<&str>>();
         let id_line = wallet_id_lines
             .first()
-            .ok_or(anyhow!("No API Key found in Response"))?;
+            .ok_or(anyhow!("No wallet id found in response body"))?;
         let wallet_id = id_line
             .trim_end_matches("</em><br />")
             .trim_start_matches("    <strong>Wallet ID: </strong><em>")
@@ -202,6 +202,22 @@ impl LnBitsWallet {
             .await?;
         let json = response.json::<CheckInvoiceResponse>().await?;
         Ok(json.paid)
+    }
+    pub async fn is_reachable(&self) -> Result<()> {
+        let response = self
+            .get(
+                "/wallet/?usr=".to_string() + self.usr.as_str() + "&wal=" + self.wallet_id.as_str(),
+                StatusCode::OK,
+            )
+            .await
+            .context("Configured lnbits instance is not reachable")?;
+        let wallet_id = Self::extract_wallet_id(&response.text().await?)
+            .context("Configured wallet is not reachable")?;
+        if wallet_id == self.wallet_id {
+            Ok(())
+        } else {
+            bail!("Connected to the wrong wallet")
+        }
     }
 }
 

@@ -1,8 +1,11 @@
 #![allow(unused)]
 use crate::api::*;
-use crate::db::SQLite;
+use crate::db::DB;
+use crate::funding_source::FundingSource;
 use crate::funding_source::TestFundingSource;
+use crate::lnbits::funding_source::LnbitsFundingSource;
 use crate::mercado::Mercado;
+use anyhow::bail;
 use anyhow::Result;
 use axum::extract::Json;
 use axum::extract::State;
@@ -12,10 +15,13 @@ use axum::Router;
 use axum_macros::debug_handler;
 use chrono::{Duration, TimeZone, Utc};
 use clap::Parser;
+use config::{Config, File, FileFormat};
 use env_logger::{Builder, WriteStyle};
+use log::info;
 use log::trace;
 use log::warn;
 use log::{debug, LevelFilter};
+use serde::Deserialize;
 use std::collections::HashMap;
 use std::str::FromStr;
 use std::sync::Arc;
@@ -364,46 +370,88 @@ const DB_CONN: &str = "sqlite::memory:";
 
 #[derive(Parser)]
 struct Args {
-    #[arg(short, long)]
-    admin: Vec<String>,
-    #[arg(short, long, default_value_t = 8081)]
+    #[arg(short, long, default_value = "config.json")]
+    config: String,
+    #[arg(short, long, default_value_t = LevelFilter::Debug)]
+    log_level: LevelFilter,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+struct MercadoConfig {
+    admins: Vec<String>,
     port: u16,
-    #[arg(short, long)]
-    test: bool,
-    #[arg(short, long)]
-    db: Option<String>,
+    db: String,
+    lnbits: Option<LnbitsConfig>,
+    funding_source: String,
+    disable_auth: bool,
+}
+#[derive(Debug, Clone, Deserialize)]
+struct LnbitsConfig {
+    usr: String,
+    wallet_id: String,
+    api_key: String,
+    url: String,
+}
+impl MercadoConfig {
+    fn new(path: String) -> Result<Self> {
+        let config = Config::builder()
+            .set_default::<_, Vec<String>>("admins", vec![])?
+            .set_default("port", 8081)?
+            .set_default("funding_source", "Lnbits".to_string())?
+            .set_default("db", "data.db".to_string())?
+            .set_default("disable_auth", false)?
+            .add_source(File::with_name(path.as_str()).required(false))
+            .build()?;
+        Ok(config.try_deserialize()?)
+    }
 }
 
 #[tokio::main]
 async fn main() -> Result<()> {
+    let cli = Args::parse();
     Builder::default()
-        .filter_level(LevelFilter::Debug)
-        .filter_module("hyper::proto::h1", LevelFilter::Info)
-        .filter_module("sqlx::query", LevelFilter::Info)
+        .filter_level(LevelFilter::Info)
+        .filter_module("server", cli.log_level)
         .write_style(WriteStyle::Always)
         .init();
-    let cli = Args::parse();
-    let (_port, handle) = run_server(Some(cli.port), cli.admin, cli.test, cli.db).await;
+    let config = MercadoConfig::new(cli.config.clone())?;
+
+    let (_port, handle) = run_server(config).await?;
     handle.await;
     Ok(())
 }
 
-async fn run_server(
-    port: Option<u16>,
-    admin: Vec<String>,
-    test: bool,
-    db_conn: Option<String>,
-) -> (u16, JoinHandle<()>) {
-    let state = Arc::new(RwLock::new(
-        Mercado::new(
-            SQLite::new(db_conn).await,
-            Box::new(TestFundingSource::default()),
-            admin,
-            test,
-        )
-        .await
-        .unwrap(),
-    ));
+async fn run_server(config: MercadoConfig) -> Result<(u16, JoinHandle<()>)> {
+    let db = Arc::new(DB::new(config.db).await);
+    let funding_source = match config.funding_source.as_str() {
+        "Test" => Box::new(TestFundingSource::default()) as Box<dyn FundingSource + Send + Sync>,
+        "Lnbits" => {
+            if let Some(lnbits) = config.lnbits {
+                Box::new(
+                    LnbitsFundingSource::new(
+                        db.clone(),
+                        lnbits.url,
+                        lnbits.wallet_id,
+                        lnbits.usr,
+                        lnbits.api_key,
+                    )
+                    .await?,
+                ) as Box<dyn FundingSource + Send + Sync>
+            } else {
+                bail!("Lnbits configuration is missing");
+            }
+        }
+        _ => bail!("Invalid Funding source specified"),
+    };
+    let backend = Mercado::new(
+        db,
+        funding_source,
+        config.admins.clone(),
+        config.disable_auth,
+    )
+    .await
+    .unwrap();
+    let state = Arc::new(RwLock::new(backend));
     let app = Router::new()
         .route("/new_prediction", post(new_prediction))
         .route("/accept_nomination", post(accept_nomination))
@@ -431,14 +479,14 @@ async fn run_server(
         .route("/get_bets", post(get_bets))
         .with_state(state);
 
-    let addr = "127.0.0.1:".to_string() + port.unwrap_or(0).to_string().as_str();
+    let addr = "127.0.0.1:".to_string() + config.port.to_string().as_str();
     let server = axum::Server::bind(&addr.parse().unwrap()).serve(app.into_make_service());
     let port = server.local_addr().port();
-    debug!("Listening on {}", server.local_addr());
+    info!("Listening on {}", server.local_addr());
     let handle = tokio::spawn(async move {
         server.await.unwrap();
     });
-    (port, handle)
+    Ok((port, handle))
 }
 
 #[cfg(test)]
@@ -455,10 +503,20 @@ mod test {
             challenge: "iT1HqC3oaoGjbSZEjAwpGZiCbzjtyz".to_string()
         }
     }
+    fn get_test_config() -> MercadoConfig {
+        MercadoConfig {
+            admins: vec![],
+            port: 0,
+            db: "sqlite::memory:".to_string(),
+            lnbits: None,
+            funding_source: "Test".to_string(),
+            disable_auth: true,
+        }
+    }
 
     #[tokio::test]
     async fn new_prediction() {
-        let (port, _) = run_server(None, vec![], true, None).await;
+        let (port, _) = run_server(get_test_config()).await.unwrap();
         let client = Client::new("http://127.0.0.1:".to_string() + port.to_string().as_str());
 
         let (_, j1) = generate_keypair(&mut rand::thread_rng());
@@ -523,7 +581,7 @@ mod test {
         //     .filter_level(LevelFilter::Debug)
         //     .write_style(WriteStyle::Always)
         //     .init();
-        let (port, _) = run_server(None, vec![], true, None).await;
+        let (port, _) = run_server(get_test_config()).await.unwrap();
         let client = Client::new("http://127.0.0.1:".to_string() + port.to_string().as_str());
         let access = get_test_access();
 

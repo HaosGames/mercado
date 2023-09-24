@@ -1,5 +1,5 @@
 use crate::api::*;
-use crate::db::SQLite;
+use crate::db::DB;
 use crate::funding_source::FundingSource;
 use anyhow::{anyhow, bail, Context, Result};
 use chrono::{DateTime, Duration, Utc};
@@ -100,9 +100,9 @@ pub struct CashOut {
     invoice: Option<String>,
 }
 pub struct Mercado {
-    db: SQLite,
+    db: Arc<DB>,
     funding: Arc<Box<dyn FundingSource + Send + Sync>>,
-    test: bool,
+    disable_auth: bool,
 }
 
 impl FromStr for BetState {
@@ -119,7 +119,7 @@ impl FromStr for BetState {
 }
 impl Mercado {
     pub async fn new(
-        db: SQLite,
+        db: Arc<DB>,
         funding: Box<dyn FundingSource + Send + Sync>,
         admins: Vec<String>,
         test: bool,
@@ -127,7 +127,7 @@ impl Mercado {
         let me = Self {
             db,
             funding: Arc::new(funding),
-            test,
+            disable_auth: test,
         };
         for admin in admins {
             me.db
@@ -759,7 +759,7 @@ impl Mercado {
         Ok(())
     }
     pub async fn check_access(&self, access: AccessRequest) -> Result<UserRole> {
-        if self.test {
+        if self.disable_auth {
             return Ok(UserRole::Root);
         }
         let (db_sig, last_access) = self
@@ -881,7 +881,7 @@ impl Mercado {
 #[cfg(test)]
 mod test {
     use super::*;
-    use crate::db::SQLite;
+    use crate::db::DB;
     use crate::funding_source::TestFundingSource;
     use secp256k1::{generate_keypair, rand};
     use std::sync::Arc;
@@ -904,8 +904,9 @@ mod test {
         let (_, j2) = generate_keypair(&mut rand::thread_rng());
         let (_, j3) = generate_keypair(&mut rand::thread_rng());
 
+        let db = DB::new("sqlite::memory:".to_string()).await;
         let mut market = Mercado::new(
-            SQLite::new(None).await,
+            Arc::new(db),
             Box::new(TestFundingSource::default()),
             vec![],
             true,
