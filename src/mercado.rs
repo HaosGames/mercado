@@ -662,12 +662,12 @@ impl Mercado {
                 .context("Error checking invoice")?;
             Ok(CashOutRespose {
                 amount,
-                invoice: Some((invoice, state)),
+                payment: Some((invoice, state)),
             })
         } else {
             Ok(CashOutRespose {
                 amount,
-                invoice: None,
+                payment: None,
             })
         }
     }

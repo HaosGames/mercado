@@ -127,7 +127,7 @@ async fn pay_bet(
     let mut backend = state.write().await;
     let (request, access) = (request.data, request.access);
     let invoice = backend
-        .pay_bet(&request.invoice, request.amount, access)
+        .pay_bet(&request.payment, request.amount, access)
         .await
         .map_err(map_any_err_and_code)?;
     warn!("Funded bet as admin with {} sats", request.amount);
@@ -140,12 +140,12 @@ async fn cancel_bet(
     let mut backend = state.write().await;
     let (request, access) = (request.data, request.access);
     let invoice = backend
-        .cancel_bet(&request.invoice, &request.refund_invoice, access)
+        .cancel_bet(&request.payment, &request.refund_payment, access)
         .await
         .map_err(map_any_err_and_code)?;
     debug!(
         "Cancelled bet {} with refund payment {}",
-        request.invoice, request.refund_invoice
+        request.payment, request.refund_payment
     );
     Ok(())
 }
@@ -158,7 +158,7 @@ async fn cash_out_user(
     let mut backend = state.write().await;
     let (request, access) = (request.data, request.access);
     let sats = backend
-        .cash_out_user(&request.prediction, &request.user, &request.invoice, access)
+        .cash_out_user(&request.prediction, &request.user, &request.payment, access)
         .await
         .map_err(map_any_err_and_code)?;
     debug!(
@@ -574,9 +574,9 @@ mod test {
                 user,
                 bet: true,
             };
-            let invoice = client.add_bet(request, access.clone()).await.unwrap();
+            let payment = client.add_bet(request, access.clone()).await.unwrap();
             let request = PayBetRequest {
-                invoice,
+                payment,
                 amount: 100,
             };
             let response = client.pay_bet(request, access.clone()).await.unwrap();
@@ -603,7 +603,7 @@ mod test {
             let request = CashOutUserRequest {
                 prediction: prediction_id,
                 user,
-                invoice: user.to_string(),
+                payment: user.to_string(),
             };
             let sats = client.cash_out_user(request, access.clone()).await.unwrap();
             assert_eq!(sats, 89);
@@ -614,7 +614,7 @@ mod test {
             let request = CashOutUserRequest {
                 prediction: prediction_id,
                 user: judge,
-                invoice: judge.to_string(),
+                payment: judge.to_string(),
             };
             let sats = client.cash_out_user(request, access.clone()).await.unwrap();
             assert_eq!(sats, 15);

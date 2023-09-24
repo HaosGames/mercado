@@ -76,15 +76,15 @@ enum Commands {
     },
     PayBet {
         #[arg(short, long)]
-        invoice: Payment,
+        payment: Payment,
         #[arg(short, long)]
         amount: Sats,
     },
     CancelBet {
         #[arg(short, long)]
-        invoice: Payment,
+        payment: Payment,
         #[arg(short, long)]
-        refund_invoice: Payment,
+        refund_payment: Payment,
     },
     GenerateKeys,
     Login,
@@ -197,26 +197,26 @@ async fn main() -> Result<()> {
                 user,
             };
             let access = get_access().await?;
-            let invoice = client.add_bet(request, access.clone()).await?;
-            println!("Invoice: {}", invoice);
-            let pay_request = PayBetRequest { invoice, amount };
+            let payment = client.add_bet(request, access.clone()).await?;
+            println!("Invoice: {}", payment);
+            let pay_request = PayBetRequest { payment, amount };
             if pay {
                 client.pay_bet(pay_request, access).await?;
                 println!("Payed bet with {} sats", amount);
             }
         }
-        Commands::PayBet { invoice, amount } => {
-            let pay_request = PayBetRequest { invoice, amount };
+        Commands::PayBet { payment, amount } => {
+            let pay_request = PayBetRequest { payment, amount };
             client.pay_bet(pay_request, get_access().await?).await?;
             println!("Payed bet with {} sats", amount);
         }
         Commands::CancelBet {
-            invoice,
-            refund_invoice,
+            payment,
+            refund_payment,
         } => {
             let request = CancelBetRequest {
-                invoice,
-                refund_invoice,
+                payment,
+                refund_payment,
             };
             client.cancel_bet(request, get_access().await?).await?;
         }

@@ -22,5 +22,5 @@ pub struct UserResponse {
 #[derive(PartialEq, Debug, Serialize, Deserialize, Clone)]
 pub struct CashOutRespose {
     pub amount: Sats,
-    pub invoice: Option<(Payment, PaymentState)>,
+    pub payment: Option<(Payment, PaymentState)>,
 }
