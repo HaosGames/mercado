@@ -1,5 +1,7 @@
 {
-  "admins": [],
+  "admins": [
+    "023d51452445aa81ecc3cfcb82dbfe937707db5c89f9f9d21d64835158df405d8c"
+  ],
   "port": 8081,
   "db": "data.db",
   "funding_source": "Lnbits",
