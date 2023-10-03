@@ -305,7 +305,7 @@ impl Mercado {
                     .await?
             }
         }
-        let cash_out = self.calculate_cash_out(prediction.clone()).await?;
+        let cash_out = self.calculate_cash_out(prediction).await?;
         self.apply_cash_out(cash_out).await?;
         Ok(())
     }
@@ -666,13 +666,23 @@ impl Mercado {
                 bail!("Access Denied: Getting bets of users is prohibited");
             }
         }
-        let bets = self.db.get_bets(prediction, user).await?;
+        let bets = self.db.get_bets(prediction, user, vec![]).await?;
         Ok(bets)
     }
     pub async fn get_balance(&self, user: UserPubKey, access: AccessRequest) -> Result<Sats> {
         self.check_access_for_user(user, access).await?;
         let balance = self.db.get_user_balance(user).await?;
         Ok(balance)
+    }
+    pub async fn get_available_balance(
+        &self,
+        user: UserPubKey,
+        access: AccessRequest,
+    ) -> Result<Sats> {
+        self.check_access_for_user(user, access).await?;
+        let balance = self.db.get_user_balance(user).await?;
+        let user_bets: Sats = self.db.get_user_bets_aggregated(user).await?.values().sum();
+        Ok(balance - user_bets)
     }
     pub async fn adjust_balance(
         &self,
@@ -749,16 +759,16 @@ mod test {
             .await
             .unwrap();
         let balance = market
-            .adjust_balance(u1, 100, access.clone())
+            .adjust_balance(u1, 200, access.clone())
             .await
             .unwrap();
-        assert_eq!(balance, 100);
+        assert_eq!(balance, 200);
         market
-            .adjust_balance(u2, 100, access.clone())
+            .adjust_balance(u2, 200, access.clone())
             .await
             .unwrap();
         market
-            .adjust_balance(u3, 100, access.clone())
+            .adjust_balance(u3, 200, access.clone())
             .await
             .unwrap();
         market
@@ -771,6 +781,18 @@ mod test {
             .unwrap();
         market
             .add_bet(prediction, u3, true, 100, access.clone())
+            .await
+            .unwrap();
+        market
+            .add_bet(prediction, u1, false, 100, access.clone())
+            .await
+            .unwrap();
+        market
+            .add_bet(prediction, u2, false, 100, access.clone())
+            .await
+            .unwrap();
+        market
+            .add_bet(prediction, u3, false, 100, access.clone())
             .await
             .unwrap();
         market
@@ -789,11 +811,11 @@ mod test {
             .make_decision(prediction, j3, true, access.clone())
             .await
             .unwrap();
-        assert_eq!(market.get_balance(u1, access.clone()).await.unwrap(), 89);
-        assert_eq!(market.get_balance(u2, access.clone()).await.unwrap(), 89);
-        assert_eq!(market.get_balance(u3, access.clone()).await.unwrap(), 89);
-        assert_eq!(market.get_balance(j1, access.clone()).await.unwrap(), 10);
-        assert_eq!(market.get_balance(j2, access.clone()).await.unwrap(), 10);
-        assert_eq!(market.get_balance(j3, access.clone()).await.unwrap(), 10);
+        assert_eq!(market.get_balance(u1, access.clone()).await.unwrap(), 179);
+        assert_eq!(market.get_balance(u2, access.clone()).await.unwrap(), 179);
+        assert_eq!(market.get_balance(u3, access.clone()).await.unwrap(), 179);
+        assert_eq!(market.get_balance(j1, access.clone()).await.unwrap(), 20);
+        assert_eq!(market.get_balance(j2, access.clone()).await.unwrap(), 20);
+        assert_eq!(market.get_balance(j3, access.clone()).await.unwrap(), 20);
     }
 }

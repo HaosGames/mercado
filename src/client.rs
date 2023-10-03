@@ -237,6 +237,20 @@ impl Client {
             .await?;
         Ok(response.json::<Sats>().await?)
     }
+    pub async fn get_available_balance(
+        &self,
+        user: UserPubKey,
+        access: AccessRequest,
+    ) -> Result<Sats> {
+        let response = self
+            .post(
+                "/get_available_balance",
+                PostRequest { data: user, access },
+                StatusCode::OK,
+            )
+            .await?;
+        Ok(response.json::<Sats>().await?)
+    }
     pub async fn adjust_balance(
         &self,
         request: AdjustBalanceRequest,

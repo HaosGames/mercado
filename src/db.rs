@@ -365,7 +365,7 @@ impl DB {
     ) -> Result<HashMap<UserPubKey, Sats>> {
         let mut aggregated_bets = HashMap::new();
         let bets: Vec<Bet> = self
-            .get_bets(Some(prediction), None)
+            .get_bets(Some(prediction), None, vec![])
             .await?
             .into_iter()
             .filter(|p| p.bet == outcome)
@@ -381,7 +381,16 @@ impl DB {
     }
     pub async fn get_user_bets_aggregated(&self, user: UserPubKey) -> Result<HashMap<RowId, Sats>> {
         let mut aggregated_bets = HashMap::new();
-        let bets: Vec<Bet> = self.get_bets(None, Some(user)).await?;
+        let exluded_market_states = vec![
+            MarketState::Resolved(true),
+            MarketState::Resolved(false),
+            MarketState::Refunded(RefundReason::Insolvency),
+            MarketState::Refunded(RefundReason::Tie),
+            MarketState::Refunded(RefundReason::TimeForDecisionRanOut),
+        ];
+        let bets: Vec<Bet> = self
+            .get_bets(None, Some(user), exluded_market_states)
+            .await?;
         for bet in bets {
             if let Some(amount) = aggregated_bets.get_mut(&bet.prediction) {
                 *amount += bet.amount;
@@ -395,16 +404,19 @@ impl DB {
         &self,
         prediction: Option<RowId>,
         user: Option<UserPubKey>,
+        exclude_states: Vec<MarketState>,
     ) -> Result<Vec<Bet>> {
         let mut stmt = String::from(
-            "SELECT user, prediction, bet, amount \
-                FROM bets ",
+            "SELECT bets.user, bets.prediction, bets.bet, bets.amount, predictions.state \
+                FROM bets LEFT JOIN predictions ON predictions.rowid = bets.prediction ",
         );
         match (prediction, user) {
             (None, None) => {}
-            (Some(prediction), None) => stmt = stmt + "WHERE prediction = ?",
-            (None, Some(user)) => stmt = stmt + "WHERE user = ?",
-            (Some(prediction), Some(user)) => stmt = stmt + "WHERE prediction = ? AND user = ?",
+            (Some(prediction), None) => stmt = stmt + "WHERE bets.prediction = ?",
+            (None, Some(user)) => stmt = stmt + "WHERE bets.user = ?",
+            (Some(prediction), Some(user)) => {
+                stmt = stmt + "WHERE bets.prediction = ? AND bets.user = ?"
+            }
         }
         let rows = match (prediction, user) {
             (None, None) => self.connection.fetch_all(query(stmt.as_str())).await?,
@@ -430,6 +442,10 @@ impl DB {
             let prediction = row.get("prediction");
             let bet = row.get("bet");
             let amount = row.get("amount");
+            let state = MarketState::from_str(row.get("state")).unwrap();
+            if exclude_states.contains(&state) {
+                continue;
+            }
             bets.push(Bet {
                 user,
                 prediction,

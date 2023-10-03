@@ -318,6 +318,17 @@ async fn get_balance(
         .map_err(map_any_err_and_code)?;
     Ok(Json(balance))
 }
+async fn get_available_balance(
+    State(state): State<Arc<RwLock<Mercado>>>,
+    Json(request): Json<PostRequest<UserPubKey>>,
+) -> Result<Json<Sats>, (StatusCode, String)> {
+    let backend = state.read().await;
+    let balance = backend
+        .get_available_balance(request.data, request.access)
+        .await
+        .map_err(map_any_err_and_code)?;
+    Ok(Json(balance))
+}
 async fn adjust_balance(
     State(state): State<Arc<RwLock<Mercado>>>,
     Json(request): Json<PostRequest<AdjustBalanceRequest>>,
@@ -438,6 +449,7 @@ async fn run_server(config: MercadoConfig) -> Result<(u16, JoinHandle<()>)> {
         .route("/get_judge", post(get_judge))
         .route("/get_bets", post(get_bets))
         .route("/get_balance", post(get_balance))
+        .route("/get_available_balance", post(get_available_balance))
         .route("/adjust_balance", post(adjust_balance))
         .with_state(state);
 
