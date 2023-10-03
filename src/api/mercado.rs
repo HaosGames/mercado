@@ -1,6 +1,7 @@
+use rust_decimal::{prelude::ToPrimitive, Decimal};
 use serde::{Deserialize, Serialize};
 
-pub type Sats = u32;
+pub type Sats = i64;
 pub type UserPubKey = secp256k1::PublicKey;
 pub type RowId = i64;
 pub type Payment = String;
@@ -10,17 +11,7 @@ pub struct Bet {
     pub user: UserPubKey,
     pub prediction: RowId,
     pub bet: bool,
-    pub amount: Option<Sats>,
-    pub state: BetState,
-    pub fund_payment: Payment,
-    pub refund_payment: Option<Payment>,
-}
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub enum BetState {
-    FundInit,
-    Funded,
-    RefundInit,
-    Refunded,
+    pub amount: Sats,
 }
 #[derive(Debug, Clone, Serialize, Deserialize, Copy)]
 pub struct Judge {
@@ -60,4 +51,42 @@ pub enum UserRole {
     User,
     Admin,
     Root,
+}
+pub fn calculate_user_cash_out(
+    bet_amount: i64,
+    outcome_amount: i64,
+    non_outcome_amount: i64,
+    judge_share_ppm: u32,
+) -> Sats {
+    //! If the calculation of shares leads to decimals we truncate to not give
+    //! out to many sats by accident which would lead to an insolvent market.
+    //! We keep the sats that don't get handed back to the user.
+    //!
+    //! This ends up being a few sats for calculating the judge share
+    //! and usually at least one sat for each user because user_share calculation
+    //! almost always leads to decimals.
+    let total_amount = Decimal::from(outcome_amount + non_outcome_amount);
+    let outcome_amount = Decimal::from(outcome_amount);
+    let bet_amount = Decimal::from(bet_amount);
+    let user_share = bet_amount / outcome_amount;
+    let judge_share = Decimal::new(judge_share_ppm.into(), 6);
+
+    let mut out = (total_amount - total_amount * judge_share).trunc();
+    out = (out * user_share).trunc();
+    out.to_i64().unwrap()
+}
+pub fn calculate_judge_cash_out(
+    outcome_judges: u32,
+    outcome_amount: i64,
+    non_outcome_amount: i64,
+    judge_share_ppm: u32,
+) -> Sats {
+    //! See [`calculate_user_cash_out()`]
+    let total_amount = Decimal::from(outcome_amount + non_outcome_amount);
+    let outcome_judges = Decimal::from(outcome_judges);
+    let judge_share = Decimal::new(judge_share_ppm.into(), 6);
+
+    let mut out = (total_amount * judge_share).trunc();
+    out = (out / outcome_judges).trunc();
+    out.to_i64().unwrap()
 }

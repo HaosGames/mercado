@@ -3,7 +3,7 @@ use crate::db::DB;
 use crate::funding_source::FundingSource;
 use anyhow::{anyhow, bail, Context, Result};
 use chrono::{DateTime, Duration, Utc};
-use log::{debug, error, trace};
+use log::{debug, error, trace, warn};
 use reqwest::StatusCode;
 use rust_decimal::prelude::ToPrimitive;
 use rust_decimal::Decimal;
@@ -105,18 +105,6 @@ pub struct Mercado {
     disable_auth: bool,
 }
 
-impl FromStr for BetState {
-    type Err = anyhow::Error;
-    fn from_str(s: &str) -> core::result::Result<Self, Self::Err> {
-        match s {
-            "FundInit" => Ok(Self::FundInit),
-            "Funded" => Ok(Self::Funded),
-            "RefundInit" => Ok(Self::RefundInit),
-            "Refunded" => Ok(Self::Refunded),
-            _ => unreachable!(),
-        }
-    }
-}
 impl Mercado {
     pub async fn new(
         db: Arc<DB>,
@@ -189,8 +177,8 @@ impl Mercado {
     }
     pub async fn accept_nomination(
         &mut self,
-        prediction: &RowId,
-        user: &UserPubKey,
+        prediction: RowId,
+        user: UserPubKey,
         access: AccessRequest,
     ) -> Result<()> {
         self.check_access_for_user(user.clone(), access).await?;
@@ -216,8 +204,8 @@ impl Mercado {
     }
     pub async fn refuse_nomination(
         &mut self,
-        prediction: &RowId,
-        user: &UserPubKey,
+        prediction: RowId,
+        user: UserPubKey,
         access: AccessRequest,
     ) -> Result<()> {
         self.check_access_for_user(user.clone(), access).await?;
@@ -232,8 +220,8 @@ impl Mercado {
     }
     pub async fn make_decision(
         &mut self,
-        prediction: &RowId,
-        judge: &UserPubKey,
+        prediction: RowId,
+        judge: UserPubKey,
         decision: bool,
         access: AccessRequest,
     ) -> Result<()> {
@@ -264,7 +252,7 @@ impl Mercado {
             }
             _ => bail!("Wrong market state"),
         }
-        match self.db.get_judge_state(prediction.clone(), &judge).await? {
+        match self.db.get_judge_state(prediction.clone(), judge).await? {
             JudgeState::Nominated | JudgeState::Refused => {
                 bail!("Judge did not accept the nomination")
             }
@@ -280,7 +268,7 @@ impl Mercado {
             e => e,
         }
     }
-    async fn try_resolve(&mut self, prediction: &RowId) -> Result<()> {
+    async fn try_resolve(&mut self, prediction: RowId) -> Result<()> {
         let mut true_count = 0;
         let mut false_count = 0;
         for state in self.db.get_judge_states(prediction).await? {
@@ -308,6 +296,7 @@ impl Mercado {
                 self.db
                     .set_prediction_state(prediction, MarketState::Refunded(RefundReason::Tie))
                     .await?;
+                //TODO Execute refund
                 bail!("There was a decision tie between an even number of judges")
             }
             Ordering::Greater => {
@@ -317,14 +306,36 @@ impl Mercado {
             }
         }
         let cash_out = self.calculate_cash_out(prediction.clone()).await?;
-        self.db.set_cash_out(prediction, cash_out).await?;
+        self.apply_cash_out(cash_out).await?;
         Ok(())
     }
-    async fn calculate_cash_out(&self, prediction: RowId) -> Result<HashMap<UserPubKey, Sats>> {
-        if let MarketState::Resolved(outcome) = self.db.get_prediction_state(&prediction).await? {
-            let bets = self
+    async fn apply_cash_out(&self, cash_out: HashMap<UserPubKey, (Sats, Sats)>) -> Result<()> {
+        for (user, (placed_bets, cash_out)) in cash_out {
+            let new_balance = self
+                .db
+                .adjust_user_balance(user, cash_out - placed_bets)
+                .await?;
+            if new_balance.is_negative() {
+                error!(
+                    "User {} has new balance {} after cash_out",
+                    user, new_balance
+                )
+            }
+        }
+        Ok(())
+    }
+    async fn calculate_cash_out(
+        &self,
+        prediction: RowId,
+    ) -> Result<HashMap<UserPubKey, (Sats, Sats)>> {
+        if let MarketState::Resolved(outcome) = self.db.get_prediction_state(prediction).await? {
+            let outcome_bets = self
                 .db
                 .get_prediction_bets_aggregated(prediction, outcome)
+                .await?;
+            let non_outcome_bets = self
+                .db
+                .get_prediction_bets_aggregated(prediction, !outcome)
                 .await?;
             let outcome_amount = self
                 .get_prediction_bets_aggregated(prediction, outcome)
@@ -333,43 +344,52 @@ impl Mercado {
                 .get_prediction_bets_aggregated(prediction, !outcome)
                 .await?;
 
-            // Calculate users
+            // Calculate outcome users
             let mut user_cash_outs = HashMap::new();
             let mut user_cash_out_amount = 0;
-            for (user, bet_amount) in bets {
-                let cash_out = Self::calculate_user_cash_out(
+            for (user, bet_amount) in outcome_bets {
+                let cash_out = calculate_user_cash_out(
                     bet_amount,
                     outcome_amount,
                     non_outcome_amount,
-                    self.db.get_judge_share_ppm(&prediction).await?,
+                    self.db.get_judge_share_ppm(prediction).await?,
                 );
                 if cash_out == 0 {
                     continue;
                 }
                 user_cash_out_amount += cash_out;
-                user_cash_outs.insert(user.clone(), cash_out);
+                let non_outcome_bet = non_outcome_bets.get(&user).cloned();
+                let placed_bets = bet_amount + non_outcome_bet.unwrap_or_default();
+                user_cash_outs.insert(user.clone(), (placed_bets, cash_out));
+            }
+
+            //Calculate non-outcome users
+            for (user, bet_amount) in non_outcome_bets {
+                if let None = user_cash_outs.get(&user) {
+                    user_cash_outs.insert(user, (bet_amount, 0));
+                }
             }
 
             // Calculate judges
             let mut judge_cash_out_amount = 0;
-            let judge_outcome_count = self.get_outcome_judge_count(&prediction).await?;
-            for (judge, state) in self.db.get_prediction_judges_mapped(&prediction).await? {
+            let judge_outcome_count = self.get_outcome_judge_count(prediction).await?;
+            for (judge, state) in self.db.get_prediction_judges_mapped(prediction).await? {
                 if let JudgeState::Resolved(decision) = state {
                     if decision == outcome {
-                        let cash_out = Self::calculate_judge_cash_out(
+                        let cash_out = calculate_judge_cash_out(
                             judge_outcome_count,
                             outcome_amount,
                             non_outcome_amount,
-                            self.db.get_judge_share_ppm(&prediction).await?,
+                            self.db.get_judge_share_ppm(prediction).await?,
                         );
                         if cash_out == 0 {
                             continue;
                         }
                         judge_cash_out_amount += cash_out;
-                        if let Some(user_cash_out) = user_cash_outs.remove(&judge) {
-                            user_cash_outs.insert(judge, user_cash_out + cash_out);
+                        if let Some((placed_bets, user_cash_out)) = user_cash_outs.remove(&judge) {
+                            user_cash_outs.insert(judge, (placed_bets, user_cash_out + cash_out));
                         } else {
-                            user_cash_outs.insert(judge, cash_out);
+                            user_cash_outs.insert(judge, (0, cash_out));
                         }
                     }
                 }
@@ -379,7 +399,7 @@ impl Mercado {
             if user_cash_out_amount + judge_cash_out_amount > outcome_amount + non_outcome_amount {
                 self.db
                     .set_prediction_state(
-                        &prediction,
+                        prediction,
                         MarketState::Refunded(RefundReason::Insolvency),
                     )
                     .await?;
@@ -394,6 +414,7 @@ impl Mercado {
                     "{} + {} > {} + {}",
                     user_cash_out_amount, judge_cash_out_amount, outcome_amount, non_outcome_amount
                 );
+                //TODO Execute refund
                 bail!(
                     "For some reason the cash out calculation made the prediction {} \
                   insolvent. Bets are being refunded",
@@ -405,45 +426,7 @@ impl Mercado {
             bail!("Market not resolved")
         }
     }
-    pub fn calculate_user_cash_out(
-        bet_amount: u32,
-        outcome_amount: u32,
-        non_outcome_amount: u32,
-        judge_share_ppm: u32,
-    ) -> Sats {
-        //! If the calculation of shares leads to decimals we truncate to not give
-        //! out to many sats by accident which would lead to an insolvent market.
-        //! We keep the sats that don't get handed back to the user.
-        //!
-        //! This ends up being a few sats for calculating the judge share
-        //! and usually at least one sat for each user because user_share calculation
-        //! almost always leads to decimals.
-        let total_amount = Decimal::from(outcome_amount + non_outcome_amount);
-        let outcome_amount = Decimal::from(outcome_amount);
-        let bet_amount = Decimal::from(bet_amount);
-        let user_share = bet_amount / outcome_amount;
-        let judge_share = Decimal::new(judge_share_ppm.into(), 6);
-
-        let mut out = (total_amount - total_amount * judge_share).trunc();
-        out = (out * user_share).trunc();
-        out.to_u32().unwrap()
-    }
-    pub fn calculate_judge_cash_out(
-        outcome_judges: u32,
-        outcome_amount: u32,
-        non_outcome_amount: u32,
-        judge_share_ppm: u32,
-    ) -> Sats {
-        //! See [`calculate_user_cash_out()`]
-        let total_amount = Decimal::from(outcome_amount + non_outcome_amount);
-        let outcome_judges = Decimal::from(outcome_judges);
-        let judge_share = Decimal::new(judge_share_ppm.into(), 6);
-
-        let mut out = (total_amount * judge_share).trunc();
-        out = (out / outcome_judges).trunc();
-        out.to_u32().unwrap()
-    }
-    async fn try_activate_trading(&mut self, prediction: &RowId) -> Result<()> {
+    async fn try_activate_trading(&mut self, prediction: RowId) -> Result<()> {
         let mut accepted_count = 0;
         for state in self
             .db
@@ -470,11 +453,12 @@ impl Mercado {
     }
     pub async fn add_bet(
         &mut self,
-        prediction: &RowId,
-        user: &UserPubKey,
+        prediction: RowId,
+        user: UserPubKey,
         bet: bool,
+        amount: Sats,
         access: AccessRequest,
-    ) -> Result<Payment> {
+    ) -> Result<()> {
         self.check_access_for_user(user.clone(), access).await?;
         match self.db.get_prediction_state(prediction).await? {
             MarketState::Trading => {
@@ -488,206 +472,29 @@ impl Mercado {
             }
             _ => bail!("Prediction has to be Trading to be able to bet on it"),
         }
-        let invoice = self.funding.create_payment().await?;
-        self.db
-            .create_bet(prediction, user, bet, invoice.clone())
-            .await?;
-        //TODO Wait until the invoice is payed or check again later
-        //self.check_bet(&invoice).await?;
-        Ok(invoice)
+        self.db.create_bet(prediction, user, bet, amount).await?;
+        Ok(())
     }
-    pub async fn check_bet(&self, invoice: &String, access: AccessRequest) -> Result<BetState> {
-        let bet = self.db.get_bet(invoice).await?;
-        self.check_access_for_user(bet.user, access).await?;
-        match bet.state {
-            BetState::FundInit => {
-                let fund_invoice_state = self.funding.check_payment(invoice).await?;
-                match fund_invoice_state {
-                    PaymentState::Settled(amount) => {
-                        if let MarketState::Trading =
-                            self.db.get_prediction_state(&bet.prediction).await?
-                        {
-                            self.db.settle_bet(invoice, amount).await?;
-                            Ok(BetState::Funded)
-                        } else {
-                            self.db.init_bet_refund(invoice, None).await?;
-                            Ok(BetState::RefundInit)
-                        }
-                    }
-                    _ => Ok(BetState::FundInit),
-                }
-            }
-            BetState::RefundInit => {
-                let refund_invoice_state = self
-                    .funding
-                    .check_payment(&bet.refund_payment.unwrap())
-                    .await?;
-                match refund_invoice_state {
-                    PaymentState::Settled(_refund_amount) => {
-                        self.db.settle_bet_refund(invoice).await?;
-                        Ok(BetState::Refunded)
-                    }
-                    PaymentState::Failed => {
-                        self.db.init_bet_refund(invoice, None).await?;
-                        Ok(BetState::RefundInit)
-                    }
-                    _ => Ok(BetState::RefundInit),
-                }
-            }
-            state => Ok(state),
-        }
-    }
-    pub async fn cancel_bet(
-        &mut self,
-        invoice: &Payment,
-        refund_invoice: &Payment,
-        access: AccessRequest,
-    ) -> Result<BetState> {
-        let bet = self.db.get_bet(invoice).await?;
+    pub async fn cancel_bet(&mut self, id: RowId, access: AccessRequest) -> Result<()> {
+        let bet = self.db.get_bet(id).await?;
         self.check_access_for_user(bet.user, access.clone()).await?;
-        let state = self.check_bet(invoice, access.clone()).await?;
-        let market_state = self.db.get_prediction_state(&bet.prediction).await?;
-        match state {
-            BetState::Funded => {
-                match market_state {
-                    MarketState::Trading => {
-                        if self.db.get_trading_end(&bet.prediction).await? < Utc::now() {
-                            self.db
-                                .set_prediction_state(
-                                    &bet.prediction,
-                                    MarketState::WaitingForDecision,
-                                )
-                                .await?;
-                            bail!("Wrong market state");
-                        }
-                    }
-                    MarketState::Refunded(_) => {}
-                    _ => bail!("Wrong market state"),
-                }
-                self.db
-                    .init_bet_refund(invoice, Some(refund_invoice))
-                    .await?;
-                self.funding
-                    .pay(&refund_invoice, bet.amount.unwrap())
-                    .await?;
-                Ok(BetState::RefundInit)
-            }
-            BetState::RefundInit => {
-                if let None = bet.refund_payment {
+        let market_state = self.db.get_prediction_state(bet.prediction).await?;
+        match market_state {
+            MarketState::Trading => {
+                if self.db.get_trading_end(bet.prediction).await? < Utc::now() {
                     self.db
-                        .init_bet_refund(invoice, Some(refund_invoice))
+                        .set_prediction_state(bet.prediction, MarketState::WaitingForDecision)
                         .await?;
-                    self.funding
-                        .pay(&refund_invoice, bet.amount.unwrap())
-                        .await?;
-                    Ok(BetState::RefundInit)
-                } else {
-                    todo!()
+                    bail!("Wrong market state");
                 }
             }
-            state => Ok(state),
-        }
-    }
-    pub async fn cash_out_user(
-        &mut self,
-        prediction: &RowId,
-        user: &UserPubKey,
-        invoice: &Payment,
-        access: AccessRequest,
-    ) -> Result<Sats> {
-        self.check_access_for_user(user.clone(), access).await?;
-        match self.db.get_prediction_state(prediction).await? {
-            MarketState::Resolved { .. } => {}
+            MarketState::Refunded(_) => {}
             _ => bail!("Wrong market state"),
         }
-        let (cash_out_invoice, amount) = self
-            .db
-            .get_cash_out(prediction, user)
-            .await
-            .context("no cash out")?;
-        if let Some(cash_out_invoice) = cash_out_invoice {
-            match self.funding.check_payment(&cash_out_invoice).await? {
-                PaymentState::Created | PaymentState::Failed => {
-                    if *invoice != cash_out_invoice {
-                        self.db
-                            .set_cash_out_payment(prediction, user, invoice.clone())
-                            .await
-                            .context("couldn't set cash out invoice")?;
-                        self.funding.pay(invoice, amount).await?;
-                    } else {
-                        self.funding.pay(&cash_out_invoice, amount).await?;
-                    }
-                    Ok(amount)
-                }
-                PaymentState::PayInit(_) => {
-                    if *invoice == cash_out_invoice {
-                        bail!("Cash out was already initialised and is still pending")
-                    } else {
-                        bail!("Cash out was already initialised with another invoice which is still pending")
-                    }
-                }
-                PaymentState::Settled(_) => {
-                    if *invoice == cash_out_invoice {
-                        bail!("Cash out was already successfully payed out")
-                    } else {
-                        bail!("Cash out was already successfully payed out with another invoice")
-                    }
-                }
-            }
-        } else {
-            self.db
-                .set_cash_out_payment(prediction, user, invoice.clone())
-                .await?;
-            self.funding.pay(invoice, amount).await?;
-            Ok(amount)
-        }
+        self.db.remove_bet(id).await?;
+        Ok(())
     }
-    pub async fn get_cash_out(
-        &self,
-        prediction: RowId,
-        user: UserPubKey,
-        access: AccessRequest,
-    ) -> Result<CashOutRespose> {
-        self.check_access_for_user(user.clone(), access).await?;
-        let (cash_out_invoice, amount) = self
-            .db
-            .get_cash_out(&prediction, &user)
-            .await
-            .context("no cash out")?;
-        if let Some(invoice) = cash_out_invoice {
-            let state = self
-                .funding
-                .check_payment(&invoice)
-                .await
-                .context("Error checking invoice")?;
-            Ok(CashOutRespose {
-                amount,
-                payment: Some((invoice, state)),
-            })
-        } else {
-            Ok(CashOutRespose {
-                amount,
-                payment: None,
-            })
-        }
-    }
-    pub async fn get_cash_outs(
-        &self,
-        prediction: Option<RowId>,
-        user: Option<UserPubKey>,
-        access: AccessRequest,
-    ) -> Result<Vec<(RowId, UserPubKey)>> {
-        if let Some(user) = user {
-            self.check_access_for_user(user, access).await?;
-        } else {
-            if let UserRole::User = self.check_access(access).await? {
-                bail!("Access Denied: Getting cash_outs of users is prohibited");
-            }
-        }
-        let cash_outs = self.db.get_cash_outs(prediction, user).await?;
-        Ok(cash_outs)
-    }
-    async fn get_outcome_judge_count(&self, prediction: &RowId) -> Result<u32> {
+    async fn get_outcome_judge_count(&self, prediction: RowId) -> Result<u32> {
         if let MarketState::Resolved(outcome) = self.db.get_prediction_state(prediction).await? {
             let mut count = 0;
             for state in self.db.get_judge_states(prediction).await? {
@@ -730,7 +537,7 @@ impl Mercado {
     }
     pub async fn force_decision_period(
         &self,
-        prediction: &RowId,
+        prediction: RowId,
         access: AccessRequest,
     ) -> Result<()> {
         if let UserRole::User = self.check_access(access).await? {
@@ -744,19 +551,6 @@ impl Mercado {
             }
             _ => bail!("Wrong market state"),
         }
-    }
-    pub async fn pay_bet(
-        &self,
-        invoice: &Payment,
-        amount: Sats,
-        access: AccessRequest,
-    ) -> Result<()> {
-        if let UserRole::User = self.check_access(access.clone()).await? {
-            bail!("Access Denied: Admin only API");
-        }
-        self.funding.pay(invoice, amount).await?;
-        self.check_bet(invoice, access).await?;
-        Ok(())
     }
     pub async fn check_access(&self, access: AccessRequest) -> Result<UserRole> {
         if self.disable_auth {
@@ -852,7 +646,7 @@ impl Mercado {
         access: AccessRequest,
     ) -> Result<Judge> {
         self.check_access_for_user(user, access).await?;
-        let state = self.db.get_judge_state(prediction, &user).await?;
+        let state = self.db.get_judge_state(prediction, user).await?;
         Ok(Judge {
             user,
             prediction,
@@ -874,6 +668,23 @@ impl Mercado {
         }
         let bets = self.db.get_bets(prediction, user).await?;
         Ok(bets)
+    }
+    pub async fn get_balance(&self, user: UserPubKey, access: AccessRequest) -> Result<Sats> {
+        self.check_access_for_user(user, access).await?;
+        let balance = self.db.get_user_balance(user).await?;
+        Ok(balance)
+    }
+    pub async fn adjust_balance(
+        &self,
+        user: UserPubKey,
+        amount: Sats,
+        access: AccessRequest,
+    ) -> Result<Sats> {
+        if let UserRole::User = self.check_access(access).await? {
+            bail!("Access Denied: Operation only permitted for admins");
+        }
+        let new_balance = self.db.adjust_user_balance(user, amount).await?;
+        Ok(new_balance)
     }
 }
 
@@ -926,89 +737,63 @@ mod test {
             .await
             .unwrap();
         market
-            .accept_nomination(&prediction, &j1, access.clone())
+            .accept_nomination(prediction, j1, access.clone())
             .await
             .unwrap();
         market
-            .accept_nomination(&prediction, &j2, access.clone())
+            .accept_nomination(prediction, j2, access.clone())
             .await
             .unwrap();
         market
-            .accept_nomination(&prediction, &j3, access.clone())
+            .accept_nomination(prediction, j3, access.clone())
             .await
             .unwrap();
-        let i1 = market
-            .add_bet(&prediction, &u1, true, access.clone())
+        let balance = market
+            .adjust_balance(u1, 100, access.clone())
             .await
             .unwrap();
-        let i2 = market
-            .add_bet(&prediction, &u2, true, access.clone())
-            .await
-            .unwrap();
-        let i3 = market
-            .add_bet(&prediction, &u3, true, access.clone())
-            .await
-            .unwrap();
-        market.pay_bet(&i1, 100, access.clone()).await.unwrap();
-        market.pay_bet(&i2, 100, access.clone()).await.unwrap();
-        market.pay_bet(&i3, 100, access.clone()).await.unwrap();
+        assert_eq!(balance, 100);
         market
-            .force_decision_period(&prediction, access.clone())
+            .adjust_balance(u2, 100, access.clone())
             .await
             .unwrap();
         market
-            .make_decision(&prediction, &j1, true, access.clone())
+            .adjust_balance(u3, 100, access.clone())
             .await
             .unwrap();
         market
-            .make_decision(&prediction, &j2, true, access.clone())
+            .add_bet(prediction, u1, true, 100, access.clone())
             .await
             .unwrap();
         market
-            .make_decision(&prediction, &j3, true, access.clone())
+            .add_bet(prediction, u2, true, 100, access.clone())
             .await
             .unwrap();
-        assert_eq!(
-            market
-                .cash_out_user(&prediction, &u1, &"i1".to_string(), access.clone())
-                .await
-                .unwrap(),
-            89
-        );
-        assert_eq!(
-            market
-                .cash_out_user(&prediction, &u2, &"i2".to_string(), access.clone())
-                .await
-                .unwrap(),
-            89
-        );
-        assert_eq!(
-            market
-                .cash_out_user(&prediction, &u3, &"i3".to_string(), access.clone())
-                .await
-                .unwrap(),
-            89
-        );
-        assert_eq!(
-            market
-                .cash_out_user(&prediction, &j1, &"i4".to_string(), access.clone())
-                .await
-                .unwrap(),
-            10
-        );
-        assert_eq!(
-            market
-                .cash_out_user(&prediction, &j2, &"i5".to_string(), access.clone())
-                .await
-                .unwrap(),
-            10
-        );
-        assert_eq!(
-            market
-                .cash_out_user(&prediction, &j3, &"i6".to_string(), access)
-                .await
-                .unwrap(),
-            10
-        );
+        market
+            .add_bet(prediction, u3, true, 100, access.clone())
+            .await
+            .unwrap();
+        market
+            .force_decision_period(prediction, access.clone())
+            .await
+            .unwrap();
+        market
+            .make_decision(prediction, j1, true, access.clone())
+            .await
+            .unwrap();
+        market
+            .make_decision(prediction, j2, true, access.clone())
+            .await
+            .unwrap();
+        market
+            .make_decision(prediction, j3, true, access.clone())
+            .await
+            .unwrap();
+        assert_eq!(market.get_balance(u1, access.clone()).await.unwrap(), 89);
+        assert_eq!(market.get_balance(u2, access.clone()).await.unwrap(), 89);
+        assert_eq!(market.get_balance(u3, access.clone()).await.unwrap(), 89);
+        assert_eq!(market.get_balance(j1, access.clone()).await.unwrap(), 10);
+        assert_eq!(market.get_balance(j2, access.clone()).await.unwrap(), 10);
+        assert_eq!(market.get_balance(j3, access.clone()).await.unwrap(), 10);
     }
 }

@@ -39,5 +39,5 @@ default = ["dep:axum", "dep:async-trait", "dep:tokio", "dep:rust_decimal", "dep:
 "dep:env_logger", "dep:futures-util", "dep:json", "dep:log", "dep:serde", "dep:serde_json", 
 "dep:chrono", "dep:clap", "dep:thiserror", "dep:secp256k1", "dep:sqlx", "dep:anyhow", "dep:tower", "dep:axum-macros", 
 "dep:reqwest", "dep:config"]
-client = ["dep:reqwest", "dep:chrono", "dep:serde", "dep:secp256k1", "dep:anyhow", "dep:log"]
+client = ["dep:reqwest", "dep:chrono", "dep:serde", "dep:secp256k1", "dep:anyhow", "dep:log", "dep:rust_decimal"]
 blocking = []

@@ -66,25 +66,15 @@ enum Commands {
         #[arg(short, long)]
         bet_true: bool,
         #[arg(short, long)]
-        amount: u32,
+        amount: Sats,
         #[arg(short, long)]
         prediction: u32,
-        #[arg(long)]
-        pay: bool,
         #[arg(short, long)]
         user: UserPubKey,
     },
-    PayBet {
-        #[arg(short, long)]
-        payment: Payment,
-        #[arg(short, long)]
-        amount: Sats,
-    },
     CancelBet {
         #[arg(short, long)]
-        payment: Payment,
-        #[arg(short, long)]
-        refund_payment: Payment,
+        id: RowId,
     },
     GenerateKeys,
     Login,
@@ -97,6 +87,12 @@ enum Commands {
         user: UserPubKey,
         #[arg(long)]
         username: Option<String>,
+    },
+    AdjustBalance {
+        #[arg(short, long)]
+        user: UserPubKey,
+        #[arg(short, long)]
+        amount: Sats,
     },
 }
 
@@ -188,37 +184,19 @@ async fn main() -> Result<()> {
             bet_true,
             amount,
             prediction,
-            pay,
             user,
         } => {
             let request = AddBetRequest {
                 bet: bet_true,
                 prediction: prediction.into(),
                 user,
+                amount,
             };
             let access = get_access().await?;
             let payment = client.add_bet(request, access.clone()).await?;
-            println!("Invoice: {}", payment);
-            let pay_request = PayBetRequest { payment, amount };
-            if pay {
-                client.pay_bet(pay_request, access).await?;
-                println!("Payed bet with {} sats", amount);
-            }
         }
-        Commands::PayBet { payment, amount } => {
-            let pay_request = PayBetRequest { payment, amount };
-            client.pay_bet(pay_request, get_access().await?).await?;
-            println!("Payed bet with {} sats", amount);
-        }
-        Commands::CancelBet {
-            payment,
-            refund_payment,
-        } => {
-            let request = CancelBetRequest {
-                payment,
-                refund_payment,
-            };
-            client.cancel_bet(request, get_access().await?).await?;
+        Commands::CancelBet { id } => {
+            client.cancel_bet(id, get_access().await?).await?;
         }
         Commands::GenerateKeys => {
             let keys = generate_keypair(&mut rand::thread_rng());
@@ -259,6 +237,11 @@ async fn main() -> Result<()> {
             let access = get_access().await?;
             let data = UpdateUserRequest { user, username };
             client.update_user(data, access).await?;
+        }
+        Commands::AdjustBalance { user, amount } => {
+            let access = get_access().await?;
+            let data = AdjustBalanceRequest { user, amount };
+            client.adjust_balance(data, access).await?;
         }
     }
     Ok(())

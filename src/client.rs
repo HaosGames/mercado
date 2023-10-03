@@ -99,81 +99,14 @@ impl Client {
             .await?;
         Ok(response.text().await?)
     }
-    pub async fn pay_bet(&self, request: PayBetRequest, access: AccessRequest) -> Result<()> {
-        self.post(
-            "/pay_bet",
-            PostRequest {
-                data: request,
-                access,
-            },
-            StatusCode::OK,
-        )
-        .await?;
-        Ok(())
-    }
-    pub async fn check_bet(&self) {}
-    pub async fn cancel_bet(&self, request: CancelBetRequest, access: AccessRequest) -> Result<()> {
+    pub async fn cancel_bet(&self, id: RowId, access: AccessRequest) -> Result<()> {
         self.post(
             "/cancel_bet",
-            PostRequest {
-                data: request,
-                access,
-            },
+            PostRequest { data: id, access },
             StatusCode::OK,
         )
         .await?;
         Ok(())
-    }
-    pub async fn cash_out_user(
-        &self,
-        request: CashOutUserRequest,
-        access: AccessRequest,
-    ) -> Result<Sats> {
-        let response = self
-            .post(
-                "/cash_out_user",
-                PostRequest {
-                    data: request,
-                    access,
-                },
-                StatusCode::OK,
-            )
-            .await?;
-        Ok(response.json::<Sats>().await?)
-    }
-    pub async fn get_cash_out(
-        &self,
-        request: CashOutRequest,
-        access: AccessRequest,
-    ) -> Result<CashOutRespose> {
-        let response = self
-            .post(
-                "/get_cash_out",
-                PostRequest {
-                    data: request,
-                    access,
-                },
-                StatusCode::OK,
-            )
-            .await?;
-        Ok(response.json::<CashOutRespose>().await?)
-    }
-    pub async fn get_cash_outs(
-        &self,
-        request: PredictionUserRequest,
-        access: AccessRequest,
-    ) -> Result<Vec<(RowId, UserPubKey)>> {
-        let response = self
-            .post(
-                "/get_cash_outs",
-                PostRequest {
-                    data: request,
-                    access,
-                },
-                StatusCode::OK,
-            )
-            .await?;
-        Ok(response.json::<Vec<(RowId, UserPubKey)>>().await?)
     }
     pub async fn force_decision_period(
         &self,
@@ -293,6 +226,33 @@ impl Client {
             )
             .await?;
         Ok(response.json::<Vec<Bet>>().await?)
+    }
+    pub async fn get_balance(&self, user: UserPubKey, access: AccessRequest) -> Result<Sats> {
+        let response = self
+            .post(
+                "/get_balance",
+                PostRequest { data: user, access },
+                StatusCode::OK,
+            )
+            .await?;
+        Ok(response.json::<Sats>().await?)
+    }
+    pub async fn adjust_balance(
+        &self,
+        request: AdjustBalanceRequest,
+        access: AccessRequest,
+    ) -> Result<Sats> {
+        let response = self
+            .post(
+                "/adjust_balance",
+                PostRequest {
+                    data: request,
+                    access,
+                },
+                StatusCode::OK,
+            )
+            .await?;
+        Ok(response.json::<Sats>().await?)
     }
 }
 

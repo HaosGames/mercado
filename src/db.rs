@@ -1,6 +1,6 @@
 use crate::api::*;
 use crate::mercado::Prediction;
-use anyhow::{Context, Ok, Result};
+use anyhow::{bail, Context, Ok, Result};
 use async_trait::async_trait;
 use chrono::{DateTime, Duration, TimeZone, Utc};
 use secp256k1::ecdsa::Signature;
@@ -23,52 +23,37 @@ impl DB {
             .execute(
                 "CREATE TABLE IF NOT EXISTS predictions (\
                 id PRIMARY KEY,\
-            prediction,\
-            judge_share_ppm,\
-            state,\
-            trading_end,\
-            decision_period,\
-            judge_count\
-            )",
+                prediction,\
+                judge_share_ppm,\
+                state,\
+                trading_end,\
+                decision_period,\
+                judge_count\
+                )",
             )
             .await
             .unwrap();
         connection
             .execute(
                 "CREATE TABLE IF NOT EXISTS bets (\
-            user NOT NULL,\
-            prediction NOT NULL,\
-            bet NOT NULL,\
-            amount,\
-            state NOT NULL,\
-            fund_payment,\
-            refund_payment,\
-            PRIMARY KEY (fund_payment)\
-            )",
+                id PRIMARY KEY,\
+                user NOT NULL,\
+                prediction NOT NULL,\
+                bet NOT NULL,\
+                amount\
+                )",
             )
             .await
             .unwrap();
         connection
             .execute(
                 "CREATE TABLE IF NOT EXISTS judges (\
-            user,\
-            prediction,\
-            state NOT NULL,\
-            decision,\
-            PRIMARY KEY (user,prediction)\
-            )",
-            )
-            .await
-            .unwrap();
-        connection
-            .execute(
-                "CREATE TABLE IF NOT EXISTS cash_outs (\
-            user,\
-            prediction,\
-            amount NOT NULL,\
-            payment,\
-            PRIMARY KEY (user,prediction)\
-            )",
+                user,\
+                prediction,\
+                state NOT NULL,\
+                decision,\
+                PRIMARY KEY (user,prediction)\
+                )",
             )
             .await
             .unwrap();
@@ -78,6 +63,7 @@ impl DB {
                 pubkey,\
                 role DEFAULT User,\
                 username UNIQUE,\
+                balance DEFAULT 0,\
                 PRIMARY KEY (pubkey)\
                 )",
             )
@@ -95,6 +81,16 @@ impl DB {
             )
             .await
             .unwrap();
+        connection
+            .execute(
+                "CREATE TABLE IF NOT EXISTS payments (\
+                id PRIMARY KEY,\
+                user NOT NULL,\
+                type
+                )",
+            )
+            .await
+            .unwrap();
         Self { connection }
     }
     pub async fn add_prediction(&self, prediction: Prediction) -> Result<RowId> {
@@ -103,13 +99,13 @@ impl DB {
             .execute(
                 query(
                     "INSERT INTO predictions (\
-            prediction,\
-            judge_share_ppm,\
-            state,\
-            trading_end,\
-            decision_period,\
-            judge_count)\
-            VALUES (?,?,'WaitingForJudges',?,?,?)",
+                    prediction,\
+                    judge_share_ppm,\
+                    state,\
+                    trading_end,\
+                    decision_period,\
+                    judge_count)\
+                    VALUES (?,?,'WaitingForJudges',?,?,?)",
                 )
                 .bind(prediction.prediction.clone())
                 .bind(prediction.judge_share_ppm)
@@ -122,10 +118,10 @@ impl DB {
         for judge in prediction.judges {
             let stmt = query(
                 "INSERT INTO judges (\
-            user,\
-            prediction,\
-            state)\
-            VALUES (?,?,'Nominated')",
+                user,\
+                prediction,\
+                state)\
+                VALUES (?,?,'Nominated')",
             );
             self.connection
                 .execute(stmt.bind(judge.to_string()).bind(id))
@@ -133,7 +129,7 @@ impl DB {
         }
         Ok(id)
     }
-    pub async fn get_prediction_state(&self, prediction: &RowId) -> Result<MarketState> {
+    pub async fn get_prediction_state(&self, prediction: RowId) -> Result<MarketState> {
         let state = MarketState::from_str(
             self.connection
                 .fetch_one(query("SELECT state FROM predictions WHERE rowid = ?").bind(prediction))
@@ -143,7 +139,7 @@ impl DB {
         )?;
         Ok(state)
     }
-    pub async fn set_prediction_state(&self, prediction: &RowId, state: MarketState) -> Result<()> {
+    pub async fn set_prediction_state(&self, prediction: RowId, state: MarketState) -> Result<()> {
         self.connection
             .execute(
                 query(
@@ -157,11 +153,7 @@ impl DB {
             .await?;
         Ok(())
     }
-    pub async fn get_judge_state(
-        &self,
-        prediction: RowId,
-        user: &UserPubKey,
-    ) -> Result<JudgeState> {
+    pub async fn get_judge_state(&self, prediction: RowId, user: UserPubKey) -> Result<JudgeState> {
         let state = JudgeState::from_str(
             self.connection
                 .fetch_one(
@@ -196,8 +188,8 @@ impl DB {
     }
     pub async fn set_judge_state(
         &self,
-        prediction: &RowId,
-        user: &UserPubKey,
+        prediction: RowId,
+        user: UserPubKey,
         state: JudgeState,
     ) -> Result<()> {
         self.connection
@@ -227,7 +219,7 @@ impl DB {
         }
         Ok(())
     }
-    pub async fn get_trading_end(&self, prediction: &RowId) -> Result<DateTime<Utc>> {
+    pub async fn get_trading_end(&self, prediction: RowId) -> Result<DateTime<Utc>> {
         let trading_end = self
             .connection
             .fetch_one(query("SELECT trading_end FROM predictions WHERE rowid=?").bind(prediction))
@@ -235,7 +227,7 @@ impl DB {
             .get(0);
         Ok(Utc.timestamp_opt(trading_end, 0).unwrap().into())
     }
-    pub async fn get_decision_period(&self, prediction: &RowId) -> Result<Duration> {
+    pub async fn get_decision_period(&self, prediction: RowId) -> Result<Duration> {
         let decision_period = self
             .connection
             .fetch_one(
@@ -247,7 +239,7 @@ impl DB {
     }
     pub async fn get_prediction_judges_mapped(
         &self,
-        prediction: &RowId,
+        prediction: RowId,
     ) -> Result<HashMap<UserPubKey, JudgeState>> {
         let mut judges = HashMap::default();
         let statement = query(
@@ -271,7 +263,7 @@ impl DB {
         }
         Ok(judges)
     }
-    pub async fn get_judge_states(&self, prediction: &RowId) -> Result<Vec<JudgeState>> {
+    pub async fn get_judge_states(&self, prediction: RowId) -> Result<Vec<JudgeState>> {
         Ok(self
             .get_prediction_judges_mapped(prediction)
             .await?
@@ -279,26 +271,7 @@ impl DB {
             .cloned()
             .collect())
     }
-    pub async fn set_cash_out(
-        &self,
-        prediction: &RowId,
-        cash_out: HashMap<UserPubKey, Sats>,
-    ) -> Result<()> {
-        for (user, amount) in cash_out {
-            let stmt = query(
-                "INSERT INTO cash_outs (\
-            user,\
-            prediction,\
-            amount) \
-            VALUES (?,?,?)",
-            );
-            self.connection
-                .execute(stmt.bind(user.to_string()).bind(prediction).bind(amount))
-                .await?;
-        }
-        Ok(())
-    }
-    pub async fn get_judge_share_ppm(&self, prediction: &RowId) -> Result<u32> {
+    pub async fn get_judge_share_ppm(&self, prediction: RowId) -> Result<u32> {
         let judge_share_ppm = self
             .connection
             .fetch_one(
@@ -308,7 +281,7 @@ impl DB {
             .get(0);
         Ok(judge_share_ppm)
     }
-    pub async fn get_judge_count(&self, prediction: &RowId) -> Result<u32> {
+    pub async fn get_judge_count(&self, prediction: RowId) -> Result<u32> {
         let judge_count = self
             .connection
             .fetch_one(query("SELECT judge_count FROM predictions WHERE rowid=?").bind(prediction))
@@ -316,208 +289,75 @@ impl DB {
             .get(0);
         Ok(judge_count)
     }
-    pub async fn get_bet(&self, payment: &Payment) -> Result<Bet> {
+    pub async fn get_bet(&self, bet: RowId) -> Result<Bet> {
         let stmt = query(
-            "SELECT user, prediction, bet, amount, state, refund_payment \
-                FROM bets WHERE fund_payment = ?",
+            "SELECT user, prediction, bet, amount \
+                FROM bets WHERE id = ?",
         );
-        let row = self.connection.fetch_one(stmt.bind(payment)).await?;
+        let row = self.connection.fetch_one(stmt.bind(bet)).await?;
         let user = UserPubKey::from_str(row.get("user")).unwrap();
         let prediction = row.get("prediction");
         let bet = row.get("bet");
-        let state: BetState = BetState::from_str(row.get("state"))?;
-        let amount = match state {
-            BetState::FundInit => None,
-            _ => row.get("amount"),
-        };
-        let refund_invoice = match state {
-            BetState::FundInit => None,
-            BetState::Funded => None,
-            BetState::RefundInit => row.get("refund_payment"),
-            BetState::Refunded => row.get("refund_payment"),
-        };
+        let amount = row.get("amount");
         Ok(Bet {
             user,
             prediction,
             bet,
             amount,
-            state,
-            fund_payment: payment.clone(),
-            refund_payment: refund_invoice,
         })
     }
     pub async fn create_bet(
         &self,
-        prediction: &RowId,
-        user: &UserPubKey,
+        prediction: RowId,
+        user: UserPubKey,
         bet: bool,
-        payment: String,
+        amount: Sats,
     ) -> Result<()> {
-        self.connection
-            .execute(
-                query(
-                    "INSERT INTO bets ( \
+        let mut tx = self.connection.begin().await?;
+        let user_bets: Sats = self.get_user_bets_aggregated(user).await?.values().sum();
+        let user_balance = self.get_user_balance(user).await?;
+        if user_bets + amount > user_balance {
+            tx.rollback().await?;
+            bail!("Not enough funds",)
+        }
+        tx.execute(
+            query(
+                "INSERT INTO bets ( \
                 user, \
                 prediction, \
-                bet, \
-                fund_payment, \
-                state) \
-                VALUES (?,?,?,?,?)",
-                )
-                .bind(user.to_string())
-                .bind(prediction)
-                .bind(bet)
-                .bind(payment)
-                .bind(BetState::FundInit.to_string()),
+                bet,\
+                amount) \
+                VALUES (?,?,?,?)",
             )
-            .await?;
+            .bind(user.to_string())
+            .bind(prediction)
+            .bind(bet)
+            .bind(amount),
+        )
+        .await?;
+        tx.commit().await?;
         Ok(())
     }
-    pub async fn settle_bet(&self, bet: &Payment, amount: Sats) -> Result<()> {
-        self.connection
-            .execute(
-                query(
-                    "UPDATE bets SET \
-                state = ?, \
-                amount = ? \
-                WHERE fund_payment=?",
-                )
-                .bind(BetState::Funded.to_string())
-                .bind(amount)
-                .bind(bet),
-            )
-            .await?;
+    pub async fn remove_bet(&self, bet: RowId) -> Result<()> {
+        let stmt = query("DELETE FROM bets WHERE id = ?");
+        self.connection.execute(stmt.bind(bet)).await?;
         Ok(())
     }
-    pub async fn init_bet_refund(
-        &self,
-        bet: &Payment,
-        refund_payment: Option<&Payment>,
-    ) -> Result<()> {
-        self.connection
-            .execute(
-                query(
-                    "UPDATE bets SET \
-                state = ?, \
-                refund_payment = ? \
-                WHERE fund_payment = ?",
-                )
-                .bind(BetState::RefundInit.to_string())
-                .bind(refund_payment)
-                .bind(bet),
-            )
-            .await?;
-        Ok(())
-    }
-    pub async fn settle_bet_refund(&self, bet: &Payment) -> Result<()> {
-        self.connection
-            .execute(
-                query(
-                    "UPDATE bets SET \
-                state = ?, \
-                WHERE fund_payment = ?",
-                )
-                .bind(BetState::Refunded.to_string())
-                .bind(bet),
-            )
-            .await?;
-        Ok(())
-    }
-    pub async fn set_cash_out_payment(
-        &self,
-        prediction: &RowId,
-        user: &UserPubKey,
-        cash_out_payment: Payment,
-    ) -> Result<()> {
-        let stmt = query(
-            "UPDATE cash_outs \
-                SET payment = ? \
-                WHERE user = ? AND prediction = ?",
-        );
-        self.connection
-            .execute(
-                stmt.bind(cash_out_payment.clone())
-                    .bind(user.to_string())
-                    .bind(prediction),
-            )
-            .await
-            .with_context(|| {
-                format!(
-                    "couldn't set cash out payment {}, for user {} and prediction {}",
-                    cash_out_payment, user, prediction
-                )
-            })?;
-        Ok(())
-    }
-
-    pub async fn get_cash_out(
-        &self,
-        prediction: &RowId,
-        user: &UserPubKey,
-    ) -> Result<(Option<Payment>, Sats)> {
-        let row = self
+    pub async fn remove_bets(&self, prediction: RowId, user: UserPubKey) -> Result<Sats> {
+        let stmt = query("DELETE FROM bets WHERE prediction = ? AND user = ? RETURNING amount");
+        let rows = self
             .connection
-            .fetch_one(
-                query("SELECT payment, amount FROM cash_outs WHERE user = ? AND prediction = ?")
-                    .bind(user.to_string())
-                    .bind(prediction),
-            )
-            .await
-            .with_context(|| {
-                format!(
-                    "no cash out for user {} and prediction {}",
-                    user, prediction
-                )
-            })?;
-        let amount = row.get("amount");
-        let payment = match row.get("payment") {
-            "" => None,
-            v => Some(v.to_string()),
-        };
-        Ok((payment, amount))
+            .fetch_all(stmt.bind(prediction).bind(user.to_string()))
+            .await?;
+        let amount = rows
+            .iter()
+            .map(|row| {
+                let amount: Sats = row.get("amount");
+                amount
+            })
+            .sum();
+        Ok(amount)
     }
-    pub async fn get_cash_outs(
-        &self,
-        prediction: Option<RowId>,
-        user: Option<UserPubKey>,
-    ) -> Result<Vec<(RowId, UserPubKey)>> {
-        let mut stmt = String::from(
-            "SELECT user, prediction \
-                FROM cash_outs ",
-        );
-        match (prediction, user) {
-            (None, None) => {}
-            (Some(prediction), None) => stmt = stmt + "WHERE prediction = ?",
-            (None, Some(user)) => stmt = stmt + "WHERE user = ?",
-            (Some(prediction), Some(user)) => stmt = stmt + "WHERE prediction = ? AND user = ?",
-        }
-        let rows = match (prediction, user) {
-            (None, None) => self.connection.fetch_all(query(stmt.as_str())).await?,
-            (Some(prediction), None) => {
-                self.connection
-                    .fetch_all(query(stmt.as_str()).bind(prediction))
-                    .await?
-            }
-            (None, Some(user)) => {
-                self.connection
-                    .fetch_all(query(stmt.as_str()).bind(user.to_string()))
-                    .await?
-            }
-            (Some(prediction), Some(user)) => {
-                self.connection
-                    .fetch_all(query(stmt.as_str()).bind(prediction).bind(user.to_string()))
-                    .await?
-            }
-        };
-        let mut cash_outs = Vec::new();
-        for row in rows {
-            let user = UserPubKey::from_str(row.get("user")).unwrap();
-            let prediction = row.get("prediction");
-            cash_outs.push((prediction, user));
-        }
-        Ok(cash_outs)
-    }
-
     pub async fn get_prediction_bets_aggregated(
         &self,
         prediction: RowId,
@@ -525,18 +365,28 @@ impl DB {
     ) -> Result<HashMap<UserPubKey, Sats>> {
         let mut aggregated_bets = HashMap::new();
         let bets: Vec<Bet> = self
-            .get_prediction_bets(prediction)
+            .get_bets(Some(prediction), None)
             .await?
             .into_iter()
             .filter(|p| p.bet == outcome)
             .collect();
         for bet in bets {
-            if let Some(bet_amount) = bet.amount {
-                if let Some(amount) = aggregated_bets.get_mut(&bet.user) {
-                    *amount += bet_amount;
-                } else {
-                    aggregated_bets.insert(bet.user, bet_amount);
-                }
+            if let Some(amount) = aggregated_bets.get_mut(&bet.user) {
+                *amount += bet.amount;
+            } else {
+                aggregated_bets.insert(bet.user, bet.amount);
+            }
+        }
+        Ok(aggregated_bets)
+    }
+    pub async fn get_user_bets_aggregated(&self, user: UserPubKey) -> Result<HashMap<RowId, Sats>> {
+        let mut aggregated_bets = HashMap::new();
+        let bets: Vec<Bet> = self.get_bets(None, Some(user)).await?;
+        for bet in bets {
+            if let Some(amount) = aggregated_bets.get_mut(&bet.prediction) {
+                *amount += bet.amount;
+            } else {
+                aggregated_bets.insert(bet.prediction, bet.amount);
             }
         }
         Ok(aggregated_bets)
@@ -547,7 +397,7 @@ impl DB {
         user: Option<UserPubKey>,
     ) -> Result<Vec<Bet>> {
         let mut stmt = String::from(
-            "SELECT user, prediction, bet, amount, state, refund_payment, fund_payment \
+            "SELECT user, prediction, bet, amount \
                 FROM bets ",
         );
         match (prediction, user) {
@@ -579,32 +429,15 @@ impl DB {
             let user = UserPubKey::from_str(row.get("user")).unwrap();
             let prediction = row.get("prediction");
             let bet = row.get("bet");
-            let fund_invoice = row.get("fund_payment");
-            let state: BetState = FromStr::from_str(row.get("state"))?;
-            let amount = match state {
-                BetState::FundInit => None,
-                _ => row.get("amount"),
-            };
-            let refund_invoice = match state {
-                BetState::FundInit => None,
-                BetState::Funded => None,
-                BetState::RefundInit => row.get("refund_payment"),
-                BetState::Refunded => row.get("refund_payment"),
-            };
+            let amount = row.get("amount");
             bets.push(Bet {
                 user,
                 prediction,
                 bet,
                 amount,
-                state,
-                fund_payment: fund_invoice,
-                refund_payment: refund_invoice,
             });
         }
         Ok(bets)
-    }
-    pub async fn get_prediction_bets(&self, prediction: RowId) -> Result<Vec<Bet>> {
-        self.get_bets(Some(prediction), None).await
     }
     pub async fn get_predictions(&self) -> Result<HashMap<RowId, PredictionOverviewResponse>> {
         let stmt = query(
@@ -720,6 +553,26 @@ impl DB {
             .await?;
         let role: String = row.get("role");
         Ok(UserRole::from_str(role.as_str())?)
+    }
+    pub async fn get_user_balance(&self, user: UserPubKey) -> Result<Sats> {
+        let stmt = query("SELECT balance FROM users WHERE pubkey = ?");
+        let row = self
+            .connection
+            .fetch_one(stmt.bind(user.to_string()))
+            .await?;
+        let balance: Sats = row.get("balance");
+        Ok(balance)
+    }
+    pub async fn adjust_user_balance(&self, user: UserPubKey, amount: Sats) -> Result<Sats> {
+        self.create_user(user).await?;
+        let stmt =
+            query("UPDATE users SET balance = balance + ? WHERE pubkey = ? RETURNING balance");
+        let row = self
+            .connection
+            .fetch_one(stmt.bind(amount).bind(user.to_string()))
+            .await?;
+        let balance = row.get("balance");
+        Ok(balance)
     }
     pub async fn create_session(&self, user: UserPubKey, challenge: String) -> Result<()> {
         self.create_user(user).await?;

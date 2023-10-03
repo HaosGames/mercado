@@ -46,6 +46,7 @@ pub struct AddBetRequest {
     pub prediction: RowId,
     pub user: UserPubKey,
     pub bet: bool,
+    pub amount: Sats,
 }
 #[derive(Debug, Serialize, Deserialize)]
 pub struct PayBetRequest {
@@ -85,7 +86,7 @@ pub struct JudgeRequest {
     pub user: UserPubKey,
 }
 #[derive(Debug, Serialize, Deserialize, Clone, PartialEq)]
-pub struct CashOutRequest {
-    pub prediction: RowId,
+pub struct AdjustBalanceRequest {
     pub user: UserPubKey,
+    pub amount: Sats,
 }
