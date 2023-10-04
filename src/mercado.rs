@@ -192,7 +192,6 @@ impl Mercado {
             MarketState::WaitingForJudges => {}
             _ => bail!("Wrong market state"),
         }
-        //TODO Check if judge accepted via Nostr
         debug!(
             "Accepted nomination on prediction {} for user {}",
             prediction, user
@@ -246,6 +245,12 @@ impl Mercado {
                             MarketState::Refunded(RefundReason::TimeForDecisionRanOut),
                         )
                         .await?;
+                    info!(
+                        "Time for decision for prediction {} ran out. Refunding bets",
+                        prediction
+                    );
+                    //Execute refund
+                    self.db.remove_bets(Some(prediction), None).await?;
                     bail!("Wrong market state");
                 }
             }
@@ -307,7 +312,9 @@ impl Mercado {
                 self.db
                     .set_prediction_state(prediction, MarketState::Refunded(RefundReason::Tie))
                     .await?;
-                //TODO Execute refund
+                info!("Decision for {} was a tie. Refunding bets", prediction);
+                // Refund bets
+                self.db.remove_bets(Some(prediction), None).await?;
                 bail!("There was a decision tie between an even number of judges")
             }
             Ordering::Greater => {
@@ -425,7 +432,8 @@ impl Mercado {
                     "{} + {} > {} + {}",
                     user_cash_out_amount, judge_cash_out_amount, outcome_amount, non_outcome_amount
                 );
-                //TODO Execute refund
+                //Execute refund
+                self.db.remove_bets(Some(prediction), None).await?;
                 bail!(
                     "For some reason the cash out calculation made the prediction {} \
                   insolvent. Bets are being refunded",
@@ -504,7 +512,9 @@ impl Mercado {
                     bail!("Wrong market state");
                 }
             }
-            MarketState::Refunded(_) => {}
+            MarketState::Refunded(_) => {
+                //TODO what needs to happen here?
+            }
             _ => bail!("Wrong market state"),
         }
         self.db.remove_bet(id).await?;

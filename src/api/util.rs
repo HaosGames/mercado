@@ -1,11 +1,11 @@
-use log::debug;
+use log::warn;
 use reqwest::StatusCode;
 
 pub fn map_any_err_and_code(e: anyhow::Error) -> (StatusCode, String) {
-    debug!("Error: {:#}", e);
+    warn!("Error: {:#}", e);
     (StatusCode::INTERNAL_SERVER_ERROR, format!("{}", e))
 }
 pub fn map_any_err(e: anyhow::Error) -> String {
-    debug!("Error: {:#}", e);
+    warn!("Error: {:#}", e);
     format!("{}", e)
 }

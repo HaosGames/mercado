@@ -349,20 +349,32 @@ impl DB {
         self.connection.execute(stmt.bind(bet)).await?;
         Ok(())
     }
-    pub async fn remove_bets(&self, prediction: RowId, user: UserPubKey) -> Result<Sats> {
-        let stmt = query("DELETE FROM bets WHERE prediction = ? AND user = ? RETURNING amount");
-        let rows = self
-            .connection
-            .fetch_all(stmt.bind(prediction).bind(user.to_string()))
-            .await?;
-        let amount = rows
-            .iter()
-            .map(|row| {
-                let amount: Sats = row.get("amount");
-                amount
-            })
-            .sum();
-        Ok(amount)
+    pub async fn remove_bets(
+        &self,
+        prediction: Option<RowId>,
+        user: Option<UserPubKey>,
+    ) -> Result<()> {
+        let stmt = String::from("DELETE FROM bets ");
+        let stmt = match (prediction, user) {
+            (None, None) => stmt,
+            _ => stmt + "WHERE ",
+        };
+        let stmt = match (prediction, user) {
+            (None, None) => stmt,
+            (Some(_), None) => stmt + "bets.prediction = ?",
+            (None, Some(_)) => stmt + "bets.user = ?",
+            (Some(_), Some(_)) => stmt + "bets.prediction = ? AND bets.user = ?",
+        };
+        let stmt = match (prediction, user) {
+            (None, None) => query(stmt.as_str()),
+            (Some(prediction), None) => query(stmt.as_str()).bind(prediction),
+            (None, Some(user)) => query(stmt.as_str()).bind(user.to_string()),
+            (Some(prediction), Some(user)) => {
+                query(stmt.as_str()).bind(prediction).bind(user.to_string())
+            }
+        };
+        let rows = self.connection.execute(stmt).await?;
+        Ok(())
     }
     pub async fn get_prediction_bets_aggregated(
         &self,
