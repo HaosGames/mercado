@@ -90,3 +90,8 @@ pub struct DepositRequest {
     pub user: UserPubKey,
     pub amount: Sats,
 }
+#[derive(Debug, Serialize, Deserialize, Clone, PartialEq)]
+pub struct TxsRequest {
+    pub user: Option<UserPubKey>,
+    pub direction: Option<TxDirection>,
+}

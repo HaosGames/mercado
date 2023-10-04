@@ -214,6 +214,18 @@ impl LnBitsWallet {
         let json = response.json::<CheckInvoiceResponse>().await?;
         Ok(json.details.amount / 1000)
     }
+    pub async fn decode_bolt11(&self, invoice: Invoice) -> Result<Sats> {
+        let request = DecodeBolt11Request { data: invoice };
+        let response = self
+            .post(
+                "/api/v1/payments/decode".to_string(),
+                request,
+                StatusCode::OK,
+            )
+            .await?;
+        let json = response.json::<DecodeBolt11Response>().await?;
+        Ok(json.amount_msat / 1000)
+    }
     pub async fn is_reachable(&self) -> Result<()> {
         let response = self
             .get(
@@ -254,6 +266,10 @@ pub struct PayInvoiceRequest {
     bolt11: String,
 }
 #[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct DecodeBolt11Request {
+    data: Invoice,
+}
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct PayInvoiceResponse {
     payment_hash: String,
 }
@@ -270,6 +286,13 @@ pub struct CheckInvoiceDetails {
     fee: i64,
     memo: String,
     pending: bool,
+}
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct DecodeBolt11Response {
+    payment_hash: PaymentHash,
+    amount_msat: Sats,
+    description: String,
+    payee: String,
 }
 
 #[cfg(test)]

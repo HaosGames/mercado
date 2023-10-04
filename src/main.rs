@@ -379,7 +379,20 @@ async fn check_tx(
         .check_tx(data, request.access)
         .await
         .map_err(map_any_err_and_code)?;
+    trace!("Checked tx {}: {:?}", data, tx);
     Ok(Json(tx))
+}
+async fn get_txs(
+    State(state): State<Arc<RwLock<Mercado>>>,
+    Json(request): Json<PostRequest<TxsRequest>>,
+) -> Result<Json<Vec<RowId>>, (StatusCode, String)> {
+    let backend = state.read().await;
+    let data = request.data;
+    let txs = backend
+        .get_txs(data.user, data.direction, request.access)
+        .await
+        .map_err(map_any_err_and_code)?;
+    Ok(Json(txs))
 }
 
 const DB_CONN: &str = "sqlite::memory:";
@@ -494,6 +507,7 @@ async fn run_server(config: MercadoConfig) -> Result<(u16, JoinHandle<()>)> {
         .route("/init_withdrawal_bolt11", post(init_withdrawal_bolt11))
         .route("/init_deposit_bolt11", post(init_deposit_bolt11))
         .route("/check_tx", post(check_tx))
+        .route("/get_txs", post(get_txs))
         .with_state(state);
 
     let addr = "127.0.0.1:".to_string() + config.port.to_string().as_str();

@@ -707,6 +707,10 @@ impl Mercado {
     ) -> Result<RowId> {
         self.check_access_for_user(user, access.clone()).await?;
         //TODO make balance check atomic with the balance adjustment
+        let invoice_amount = self.funding.decode_bolt11(invoice.clone()).await?;
+        if invoice_amount != amount {
+            bail!("Invoice and form have differing ammounts")
+        }
         let balance = self.db.get_user_balance(user).await?;
         if balance - amount < 0 {
             bail!("Not enough funds");
@@ -760,7 +764,7 @@ impl Mercado {
                     .check_bolt11(details.payment_hash.clone())
                     .await?;
                 if let TxStateBolt11::PayInit(pending_amount) = new_state {
-                    if tx.initiated < Utc::now() - Duration::minutes(1) {
+                    if tx.initiated < Utc::now() - Duration::minutes(10) {
                         new_state = TxStateBolt11::Failed;
                         self.db.adjust_user_balance(tx.user, pending_amount).await?;
                     }
@@ -809,6 +813,21 @@ impl Mercado {
                 Ok(tx)
             }
         }
+    }
+    pub async fn get_txs(
+        &self,
+        user: Option<UserPubKey>,
+        direction: Option<TxDirection>,
+        access: AccessRequest,
+    ) -> Result<Vec<RowId>> {
+        if let Some(user) = user {
+            self.check_access_for_user(user, access).await?;
+        } else {
+            if let UserRole::User = self.check_access(access).await? {
+                bail!("Access Denied: Getting bets of users is prohibited");
+            }
+        }
+        self.db.get_txs(user, direction).await
     }
 }
 

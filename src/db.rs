@@ -812,4 +812,44 @@ impl DB {
             }
         }
     }
+    pub async fn get_txs(
+        &self,
+        user: Option<UserPubKey>,
+        direction: Option<TxDirection>,
+    ) -> Result<Vec<RowId>> {
+        let mut stmt = String::from(
+            "SELECT rowid \
+                FROM payments ",
+        );
+        match (user, direction.clone()) {
+            (None, None) => {}
+            (Some(user), None) => stmt = stmt + "WHERE user = ?",
+            (None, Some(direction)) => stmt = stmt + "WHERE direction = ?",
+            (Some(user), Some(direction)) => stmt = stmt + "WHERE user = ? AND direction = ?",
+        }
+        let rows = match (user, direction) {
+            (None, None) => self.connection.fetch_all(query(stmt.as_str())).await?,
+            (Some(user), None) => {
+                self.connection
+                    .fetch_all(query(stmt.as_str()).bind(json!(user)))
+                    .await?
+            }
+            (None, Some(direction)) => {
+                self.connection
+                    .fetch_all(query(stmt.as_str()).bind(json!(direction)))
+                    .await?
+            }
+            (Some(user), Some(direction)) => {
+                self.connection
+                    .fetch_all(
+                        query(stmt.as_str())
+                            .bind(json!(user))
+                            .bind(json!(direction)),
+                    )
+                    .await?
+            }
+        };
+        let txs = rows.into_iter().map(|row| row.get("rowid")).collect();
+        Ok(txs)
+    }
 }

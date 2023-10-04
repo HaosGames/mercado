@@ -313,6 +313,19 @@ impl Client {
             .await?;
         Ok(response.json::<Tx>().await?)
     }
+    pub async fn get_txs(&self, request: TxsRequest, access: AccessRequest) -> Result<Vec<RowId>> {
+        let response = self
+            .post(
+                "/get_txs",
+                PostRequest {
+                    data: request,
+                    access,
+                },
+                StatusCode::OK,
+            )
+            .await?;
+        Ok(response.json::<Vec<RowId>>().await?)
+    }
 }
 
 pub async fn bail_if_err(response: Response, expexted_code: StatusCode) -> Result<Response> {

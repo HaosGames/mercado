@@ -44,4 +44,7 @@ impl FundingSource for LnbitsFundingSource {
             Ok(TxStateBolt11::PayInit(amount))
         }
     }
+    async fn decode_bolt11(&self, invoice: Invoice) -> Result<Sats> {
+        self.wallet.decode_bolt11(invoice).await
+    }
 }

@@ -12,6 +12,7 @@ pub trait FundingSource {
     async fn create_bolt11(&self, amount: Sats) -> Result<(PaymentHash, Invoice)>;
     async fn pay_bolt11(&self, invoice: Invoice, amount: Sats) -> Result<PaymentHash>;
     async fn check_bolt11(&self, hash: PaymentHash) -> Result<TxStateBolt11>;
+    async fn decode_bolt11(&self, invoice: Invoice) -> Result<Sats>;
 }
 #[derive(Debug, Default)]
 pub struct TestFundingSource {
@@ -46,5 +47,8 @@ impl FundingSource for TestFundingSource {
         } else {
             bail!("Invoice doesn't exist")
         }
+    }
+    async fn decode_bolt11(&self, _invoice: Invoice) -> Result<Sats> {
+        Ok(100)
     }
 }

@@ -51,6 +51,7 @@ impl Display for UserRole {
         write!(f, "{}", output)
     }
 }
+
 impl FromStr for UserRole {
     type Err = anyhow::Error;
 
