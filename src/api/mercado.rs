@@ -8,6 +8,7 @@ pub type Payment = String;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Bet {
+    pub id: RowId,
     pub user: UserPubKey,
     pub prediction: RowId,
     pub bet: bool,

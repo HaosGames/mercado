@@ -38,7 +38,6 @@ impl DB {
         connection
             .execute(
                 "CREATE TABLE IF NOT EXISTS bets (\
-                id PRIMARY KEY,\
                 user NOT NULL,\
                 prediction NOT NULL,\
                 bet NOT NULL,\
@@ -297,14 +296,16 @@ impl DB {
     pub async fn get_bet(&self, bet: RowId) -> Result<Bet> {
         let stmt = query(
             "SELECT user, prediction, bet, amount \
-                FROM bets WHERE id = ?",
+                FROM bets WHERE rowid = ?",
         );
         let row = self.connection.fetch_one(stmt.bind(bet)).await?;
         let user = UserPubKey::from_str(row.get("user")).unwrap();
         let prediction = row.get("prediction");
+        let id = bet;
         let bet = row.get("bet");
         let amount = row.get("amount");
         Ok(Bet {
+            id,
             user,
             prediction,
             bet,
@@ -344,7 +345,7 @@ impl DB {
         Ok(())
     }
     pub async fn remove_bet(&self, bet: RowId) -> Result<()> {
-        let stmt = query("DELETE FROM bets WHERE id = ?");
+        let stmt = query("DELETE FROM bets WHERE rowid = ?");
         self.connection.execute(stmt.bind(bet)).await?;
         Ok(())
     }
@@ -412,7 +413,7 @@ impl DB {
         exclude_states: Vec<MarketState>,
     ) -> Result<Vec<Bet>> {
         let mut stmt = String::from(
-            "SELECT bets.user, bets.prediction, bets.bet, bets.amount, predictions.state \
+            "SELECT bets.user, bets.prediction, bets.bet, bets.amount, predictions.state, bets.rowid \
                 FROM bets LEFT JOIN predictions ON predictions.rowid = bets.prediction ",
         );
         match (prediction, user) {
@@ -443,6 +444,7 @@ impl DB {
         };
         let mut bets = Vec::new();
         for row in rows {
+            let id = row.get("rowid");
             let user = UserPubKey::from_str(row.get("user")).unwrap();
             let prediction = row.get("prediction");
             let bet = row.get("bet");
@@ -452,6 +454,7 @@ impl DB {
                 continue;
             }
             bets.push(Bet {
+                id,
                 user,
                 prediction,
                 bet,
