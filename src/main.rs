@@ -340,6 +340,47 @@ async fn adjust_balance(
         .map_err(map_any_err_and_code)?;
     Ok(Json(balance))
 }
+async fn init_withdrawal_bolt11(
+    State(state): State<Arc<RwLock<Mercado>>>,
+    Json(request): Json<PostRequest<WithdrawalRequest>>,
+) -> Result<Json<RowId>, (StatusCode, String)> {
+    let backend = state.read().await;
+    let data = request.data;
+    let id = backend
+        .init_withdrawal_bolt11(data.user, data.invoice, data.amount, request.access)
+        .await
+        .map_err(map_any_err_and_code)?;
+    Ok(Json(id))
+}
+async fn init_deposit_bolt11(
+    State(state): State<Arc<RwLock<Mercado>>>,
+    Json(request): Json<PostRequest<DepositRequest>>,
+) -> Result<Json<DepositResponse>, (StatusCode, String)> {
+    let backend = state.read().await;
+    let data = request.data;
+    let (id, invoice) = backend
+        .init_deposit_bolt11(data.user, data.amount, request.access)
+        .await
+        .map_err(map_any_err_and_code)?;
+    let response = DepositResponse { invoice, id };
+    debug!(
+        "Initiated Deposit of {} sats with id {} for {}",
+        data.amount, id, data.user
+    );
+    Ok(Json(response))
+}
+async fn check_tx(
+    State(state): State<Arc<RwLock<Mercado>>>,
+    Json(request): Json<PostRequest<RowId>>,
+) -> Result<Json<Tx>, (StatusCode, String)> {
+    let backend = state.read().await;
+    let data = request.data;
+    let tx = backend
+        .check_tx(data, request.access)
+        .await
+        .map_err(map_any_err_and_code)?;
+    Ok(Json(tx))
+}
 
 const DB_CONN: &str = "sqlite::memory:";
 
@@ -400,11 +441,10 @@ async fn run_server(config: MercadoConfig) -> Result<(u16, JoinHandle<()>)> {
     let db = Arc::new(DB::new(config.db).await);
     let funding_source = match config.funding_source.as_str() {
         "Test" => Box::new(TestFundingSource::default()) as Box<dyn FundingSource + Send + Sync>,
-        "Lnbits" => {
+        "Lnbits" | "LnBits" | "LNBits" | "lnbits" | "LNBITS" => {
             if let Some(lnbits) = config.lnbits {
                 Box::new(
                     LnbitsFundingSource::new(
-                        db.clone(),
                         lnbits.url,
                         lnbits.wallet_id,
                         lnbits.usr,
@@ -451,6 +491,9 @@ async fn run_server(config: MercadoConfig) -> Result<(u16, JoinHandle<()>)> {
         .route("/get_balance", post(get_balance))
         .route("/get_available_balance", post(get_available_balance))
         .route("/adjust_balance", post(adjust_balance))
+        .route("/init_withdrawal_bolt11", post(init_withdrawal_bolt11))
+        .route("/init_deposit_bolt11", post(init_deposit_bolt11))
+        .route("/check_tx", post(check_tx))
         .with_state(state);
 
     let addr = "127.0.0.1:".to_string() + config.port.to_string().as_str();
@@ -467,7 +510,10 @@ async fn run_server(config: MercadoConfig) -> Result<(u16, JoinHandle<()>)> {
 mod test {
     use secp256k1::{ecdsa::Signature, generate_keypair, rand};
 
-    use crate::client::Client;
+    use crate::{
+        client::Client,
+        lnbits::client::{read_super_user, LnBitsWallet},
+    };
 
     use super::*;
     fn get_test_access() -> AccessRequest {
@@ -658,5 +704,172 @@ mod test {
             .unwrap();
         assert_eq!(ratio.0, 300);
         assert_eq!(prediction.name, "Test prediction".to_string());
+    }
+    #[tokio::test]
+    async fn deposit_with_test_funding() {
+        // Builder::default()
+        //     .filter_level(LevelFilter::Debug)
+        //     .write_style(WriteStyle::Always)
+        //     .init();
+        let (port, _) = run_server(get_test_config()).await.unwrap();
+        let client = Client::new("http://127.0.0.1:".to_string() + port.to_string().as_str());
+        let access = get_test_access();
+
+        let (_, u1) = generate_keypair(&mut rand::thread_rng());
+        let request = DepositRequest {
+            user: u1,
+            amount: 100,
+        };
+        let (id, _) = client
+            .init_deposit_bolt11(request, access.clone())
+            .await
+            .unwrap();
+        let tx = client.check_tx(id, access.clone()).await.unwrap();
+        assert_eq!(tx.user, u1);
+        let balance = client.get_balance(u1, access).await.unwrap();
+        assert_eq!(balance, 100);
+    }
+    #[tokio::test]
+    async fn deposit_with_lnbits() {
+        // Builder::default()
+        //     .filter_level(LevelFilter::Debug)
+        //     .write_style(WriteStyle::Always)
+        //     .init();
+        let user_wallet = LnBitsWallet::new("http://127.0.0.1:5000".to_string())
+            .await
+            .unwrap();
+        let super_user = read_super_user().await.unwrap();
+        let super_user_api_key = user_wallet
+            .query_super_user_api_key(super_user.clone())
+            .await
+            .unwrap();
+        user_wallet
+            .top_up_wallet(super_user.to_string(), 500, super_user_api_key.to_string())
+            .await
+            .unwrap();
+        let mercado_wallet = LnBitsWallet::new("http://127.0.0.1:5000".to_string())
+            .await
+            .unwrap();
+        let mut mercado_config = get_test_config();
+        mercado_config.lnbits = Some(LnbitsConfig {
+            usr: mercado_wallet.usr,
+            wallet_id: mercado_wallet.wallet_id,
+            api_key: mercado_wallet.api_key,
+            url: mercado_wallet.url,
+        });
+        mercado_config.funding_source = "Lnbits".to_string();
+        let (port, _) = run_server(mercado_config).await.unwrap();
+        let client = Client::new("http://127.0.0.1:".to_string() + port.to_string().as_str());
+        let access = get_test_access();
+
+        let (_, u1) = generate_keypair(&mut rand::thread_rng());
+        let request = DepositRequest {
+            user: u1,
+            amount: 100,
+        };
+        let (id, invoice) = client
+            .init_deposit_bolt11(request, access.clone())
+            .await
+            .unwrap();
+        user_wallet.pay_invoice(invoice).await.unwrap();
+        let tx = client.check_tx(id, access.clone()).await.unwrap();
+        assert_eq!(tx.user, u1);
+        let balance = client.get_balance(u1, access).await.unwrap();
+        assert_eq!(balance, 100);
+    }
+    #[tokio::test]
+    async fn withdraw_with_test_funding() {
+        // Builder::default()
+        //     .filter_level(LevelFilter::Debug)
+        //     .write_style(WriteStyle::Always)
+        //     .init();
+        let (port, _) = run_server(get_test_config()).await.unwrap();
+        let client = Client::new("http://127.0.0.1:".to_string() + port.to_string().as_str());
+        let access = get_test_access();
+
+        let (_, u1) = generate_keypair(&mut rand::thread_rng());
+        let request = AdjustBalanceRequest {
+            user: u1,
+            amount: 100,
+        };
+        client
+            .adjust_balance(request, access.clone())
+            .await
+            .unwrap();
+        let request = WithdrawalRequest {
+            user: u1,
+            amount: 100,
+            invoice: "".to_string(),
+        };
+        let id = client
+            .init_withdrawal_bolt11(request, access.clone())
+            .await
+            .unwrap();
+        let tx = client.check_tx(id, access.clone()).await.unwrap();
+        assert_eq!(tx.user, u1);
+        let balance = client.get_balance(u1, access).await.unwrap();
+        assert_eq!(balance, 0);
+    }
+    #[tokio::test]
+    async fn withdraw_with_lnbits() {
+        // Builder::default()
+        //     .filter_level(LevelFilter::Debug)
+        //     .write_style(WriteStyle::Always)
+        //     .init();
+        let mercado_wallet = LnBitsWallet::new("http://127.0.0.1:5000".to_string())
+            .await
+            .unwrap();
+        let super_user = read_super_user().await.unwrap();
+        let super_user_api_key = mercado_wallet
+            .query_super_user_api_key(super_user.clone())
+            .await
+            .unwrap();
+        mercado_wallet
+            .top_up_wallet(super_user.to_string(), 500, super_user_api_key.to_string())
+            .await
+            .unwrap();
+        let user_wallet = LnBitsWallet::new("http://127.0.0.1:5000".to_string())
+            .await
+            .unwrap();
+        let mut mercado_config = get_test_config();
+
+        mercado_config.lnbits = Some(LnbitsConfig {
+            usr: mercado_wallet.usr,
+            wallet_id: mercado_wallet.wallet_id,
+            api_key: mercado_wallet.api_key,
+            url: mercado_wallet.url,
+        });
+        mercado_config.funding_source = "Lnbits".to_string();
+
+        let (port, _) = run_server(mercado_config).await.unwrap();
+        let client = Client::new("http://127.0.0.1:".to_string() + port.to_string().as_str());
+        let access = get_test_access();
+
+        let (_, u1) = generate_keypair(&mut rand::thread_rng());
+
+        let request = AdjustBalanceRequest {
+            user: u1,
+            amount: 100,
+        };
+        client
+            .adjust_balance(request, access.clone())
+            .await
+            .unwrap();
+        let (payment_hash, invoice) = user_wallet.create_invoice(100).await.unwrap();
+        let request = WithdrawalRequest {
+            user: u1,
+            amount: 100,
+            invoice,
+        };
+        let id = client
+            .init_withdrawal_bolt11(request, access.clone())
+            .await
+            .unwrap();
+        let tx = client.check_tx(id, access.clone()).await.unwrap();
+        assert_eq!(tx.user, u1);
+        let balance = client.get_balance(u1, access).await.unwrap();
+        assert_eq!(balance, 0);
+        let is_payed = user_wallet.is_payed(payment_hash).await.unwrap();
+        assert!(is_payed);
     }
 }

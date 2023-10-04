@@ -4,7 +4,9 @@ use anyhow::{bail, Context, Ok, Result};
 use async_trait::async_trait;
 use chrono::{DateTime, Duration, TimeZone, Utc};
 use secp256k1::ecdsa::Signature;
+use serde_json::json;
 use sqlx::sqlite::SqliteConnectOptions;
+use sqlx::types::Json;
 use sqlx::{query, Executor, Pool, Row, SqlitePool};
 use std::collections::HashMap;
 use std::str::FromStr;
@@ -84,9 +86,12 @@ impl DB {
         connection
             .execute(
                 "CREATE TABLE IF NOT EXISTS payments (\
-                id PRIMARY KEY,\
                 user NOT NULL,\
-                type
+                initiated NOT NULL, \
+                direction NOT NULL,\
+                type NOT NULL,\
+                bolt11_state,\
+                bolt11_details\
                 )",
             )
             .await
@@ -741,5 +746,70 @@ impl DB {
             })
             .collect();
         Ok(judges)
+    }
+    pub async fn create_tx(
+        &self,
+        user: UserPubKey,
+        direction: TxDirection,
+        tx: TxType,
+    ) -> Result<RowId> {
+        match tx {
+            TxType::Bolt11 { details, state } => {
+                let stmt = query(
+                    "INSERT INTO payments (\
+                    user, \
+                    initiated, \
+                    direction, \
+                    type, \
+                    bolt11_state, \
+                    bolt11_details\
+                    ) VALUES (?,?,?,?,?,?) RETURNING rowid",
+                )
+                .bind(json!(user))
+                .bind(Utc::now().timestamp())
+                .bind(json!(direction))
+                .bind(json!(TxTypes::Bolt11))
+                .bind(json!(state))
+                .bind(json!(details));
+                let row = self.connection.fetch_one(stmt).await?;
+                let id = row.get("rowid");
+                Ok(id)
+            }
+        }
+    }
+    pub async fn update_tx_state_bolt11(&self, id: RowId, state: TxStateBolt11) -> Result<()> {
+        let stmt = query("UPDATE payments SET bolt11_state = ? WHERE rowid = ?")
+            .bind(json!(state))
+            .bind(id);
+        self.connection.execute(stmt).await?;
+        Ok(())
+    }
+    pub async fn get_tx(&self, id: RowId) -> Result<Tx> {
+        let stmt = query(
+            "SELECT user, initiated, direction, type, bolt11_state, bolt11_details \
+            FROM payments WHERE rowid = ?",
+        )
+        .bind(id);
+        let row = self.connection.fetch_optional(stmt).await?;
+        let row = row.ok_or(anyhow::anyhow!("Transaction {} doesn't exist", id))?;
+        let user: Json<UserPubKey> = row.get("user");
+        let initiated = DateTime::from_timestamp(row.get("initiated"), 0).unwrap();
+        let direction: Json<TxDirection> = row.get("direction");
+        let tx_type: Json<TxTypes> = row.get("type");
+        match tx_type.0 {
+            TxTypes::Bolt11 => {
+                let state: Json<_> = row.get("bolt11_state");
+                let details: Json<_> = row.get("bolt11_details");
+                Ok(Tx {
+                    user: user.0,
+                    initiated,
+                    direction: direction.0,
+                    tx_type: TxType::Bolt11 {
+                        details: details.0,
+                        state: state.0,
+                    },
+                })
+            }
+        }
     }
 }

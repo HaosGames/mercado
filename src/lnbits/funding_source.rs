@@ -1,7 +1,7 @@
 use std::sync::Arc;
 
 use crate::{
-    api::{Payment, PaymentDetails, PaymentState, Sats},
+    api::{Invoice, Payment, PaymentHash, Sats, TxDetailsBolt11, TxStateBolt11},
     db::DB,
     funding_source::FundingSource,
 };
@@ -10,27 +10,18 @@ use anyhow::Result;
 use super::client::LnBitsWallet;
 
 pub struct LnbitsFundingSource {
-    db: Arc<DB>,
     wallet: LnBitsWallet,
 }
 impl LnbitsFundingSource {
-    pub async fn new_test(db: Arc<DB>, url: String) -> Result<Self> {
+    pub async fn new_test(url: String) -> Result<Self> {
         let funding_source = Self {
-            db,
             wallet: LnBitsWallet::new(url).await?,
         };
         funding_source.wallet.is_reachable().await?;
         Ok(funding_source)
     }
-    pub async fn new(
-        db: Arc<DB>,
-        url: String,
-        wallet_id: String,
-        usr: String,
-        api_key: String,
-    ) -> Result<Self> {
+    pub async fn new(url: String, wallet_id: String, usr: String, api_key: String) -> Result<Self> {
         let funding_source = Self {
-            db,
             wallet: LnBitsWallet::existing(url, wallet_id, usr, api_key),
         };
         funding_source.wallet.is_reachable().await?;
@@ -39,16 +30,18 @@ impl LnbitsFundingSource {
 }
 #[async_trait::async_trait]
 impl FundingSource for LnbitsFundingSource {
-    async fn create_payment(&self) -> Result<Payment> {
-        todo!()
+    async fn create_bolt11(&self, amount: Sats) -> Result<(PaymentHash, Invoice)> {
+        self.wallet.create_invoice(amount).await
     }
-    async fn pay(&self, payment: &Payment, amount: Sats) -> Result<PaymentState> {
-        todo!()
+    async fn pay_bolt11(&self, invoice: Invoice, _amount: Sats) -> Result<PaymentHash> {
+        self.wallet.pay_invoice(invoice).await
     }
-    async fn check_payment(&self, payment: &Payment) -> Result<PaymentState> {
-        todo!()
-    }
-    async fn get_payment_details(&self, payment: Payment) -> Result<PaymentDetails> {
-        todo!()
+    async fn check_bolt11(&self, hash: PaymentHash) -> Result<TxStateBolt11> {
+        let amount = self.wallet.get_payment_amount(hash.clone()).await?;
+        if self.wallet.is_payed(hash).await? {
+            Ok(TxStateBolt11::Settled(amount))
+        } else {
+            Ok(TxStateBolt11::PayInit(amount))
+        }
     }
 }

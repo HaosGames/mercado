@@ -613,6 +613,8 @@ impl Mercado {
         }
         Ok(())
     }
+    /// Action can only be executed from logged in users for themselves
+    /// or from logged in admins
     pub async fn check_access_for_user(
         &self,
         user: UserPubKey,
@@ -695,6 +697,118 @@ impl Mercado {
         }
         let new_balance = self.db.adjust_user_balance(user, amount).await?;
         Ok(new_balance)
+    }
+    pub async fn init_withdrawal_bolt11(
+        &self,
+        user: UserPubKey,
+        invoice: Invoice,
+        amount: Sats,
+        access: AccessRequest,
+    ) -> Result<RowId> {
+        self.check_access_for_user(user, access.clone()).await?;
+        //TODO make balance check atomic with the balance adjustment
+        let balance = self.db.get_user_balance(user).await?;
+        if balance - amount < 0 {
+            bail!("Not enough funds");
+        }
+        self.adjust_balance(user, -amount, access).await?;
+        let hash = self.funding.pay_bolt11(invoice.clone(), amount).await?;
+        let tx = TxType::Bolt11 {
+            details: TxDetailsBolt11 {
+                payment_hash: hash.clone(),
+                payment_request: invoice,
+            },
+            state: TxStateBolt11::PayInit(amount),
+        };
+        let id = self.db.create_tx(user, TxDirection::Withdrawal, tx).await?;
+        Ok(id)
+    }
+    pub async fn init_deposit_bolt11(
+        &self,
+        user: UserPubKey,
+        amount: Sats,
+        access: AccessRequest,
+    ) -> Result<(RowId, Invoice)> {
+        self.check_access_for_user(user, access.clone()).await?;
+        let (hash, invoice) = self.funding.create_bolt11(amount).await?;
+        let tx = TxType::Bolt11 {
+            details: TxDetailsBolt11 {
+                payment_hash: hash.clone(),
+                payment_request: invoice.clone(),
+            },
+            state: TxStateBolt11::PayInit(amount),
+        };
+        let id = self.db.create_tx(user, TxDirection::Deposit, tx).await?;
+        Ok((id, invoice))
+    }
+    pub async fn check_tx(&self, id: RowId, access: AccessRequest) -> Result<Tx> {
+        let mut tx = self.db.get_tx(id).await?;
+        self.check_access_for_user(tx.user, access).await?;
+        match tx.direction {
+            TxDirection::Withdrawal => self.check_withdrawal(id, tx).await,
+            TxDirection::Deposit => self.check_deposit(id, tx).await,
+        }
+    }
+    pub async fn check_withdrawal(&self, id: RowId, tx: Tx) -> Result<Tx> {
+        match tx.clone().tx_type {
+            TxType::Bolt11 { details, state } => {
+                if let TxStateBolt11::Settled(_) = state {
+                    return Ok(tx);
+                }
+                let mut new_state = self
+                    .funding
+                    .check_bolt11(details.payment_hash.clone())
+                    .await?;
+                if let TxStateBolt11::PayInit(pending_amount) = new_state {
+                    if tx.initiated < Utc::now() - Duration::minutes(1) {
+                        new_state = TxStateBolt11::Failed;
+                        self.db.adjust_user_balance(tx.user, pending_amount).await?;
+                    }
+                }
+                self.db
+                    .update_tx_state_bolt11(id, new_state.clone())
+                    .await?;
+                let tx = Tx {
+                    user: tx.user,
+                    initiated: tx.initiated,
+                    direction: tx.direction,
+                    tx_type: TxType::Bolt11 {
+                        details,
+                        state: new_state,
+                    },
+                };
+                Ok(tx)
+            }
+        }
+    }
+    pub async fn check_deposit(&self, id: RowId, tx: Tx) -> Result<Tx> {
+        match tx.clone().tx_type {
+            TxType::Bolt11 { details, state } => {
+                if let TxStateBolt11::Settled(_) = state {
+                    return Ok(tx);
+                }
+                let new_state = self
+                    .funding
+                    .check_bolt11(details.payment_hash.clone())
+                    .await?;
+                self.db
+                    .update_tx_state_bolt11(id, new_state.clone())
+                    .await?;
+                if let TxStateBolt11::Settled(amount) = new_state {
+                    self.db.adjust_user_balance(tx.user, amount).await?;
+                }
+                let tx = Tx {
+                    user: tx.user,
+                    initiated: tx.initiated,
+                    direction: tx.direction,
+                    tx_type: TxType::Bolt11 {
+                        details,
+                        state: new_state,
+                    },
+                };
+                Ok(tx)
+            }
+        }
     }
 }
 

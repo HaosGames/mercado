@@ -1,4 +1,6 @@
-use crate::api::{Payment, PaymentDetails, PaymentState, Sats};
+use crate::api::{
+    Invoice, Payment, PaymentHash, RowId, Sats, TxDirection, TxStateBolt11, TxType, TxTypes,
+};
 use anyhow::{bail, Result};
 use async_trait::async_trait;
 use secp256k1::{generate_keypair, rand};
@@ -7,51 +9,42 @@ use std::sync::{Arc, Mutex};
 
 #[async_trait]
 pub trait FundingSource {
-    async fn create_payment(&self) -> Result<Payment>;
-    async fn pay(&self, payment: &Payment, amount: Sats) -> Result<PaymentState>;
-    async fn check_payment(&self, payment: &Payment) -> Result<PaymentState>;
-    async fn get_payment_details(&self, payment: Payment) -> Result<PaymentDetails>;
+    async fn create_bolt11(&self, amount: Sats) -> Result<(PaymentHash, Invoice)>;
+    async fn pay_bolt11(&self, invoice: Invoice, amount: Sats) -> Result<PaymentHash>;
+    async fn check_bolt11(&self, hash: PaymentHash) -> Result<TxStateBolt11>;
 }
 #[derive(Debug, Default)]
 pub struct TestFundingSource {
-    incoming: Arc<Mutex<HashMap<Payment, PaymentState>>>,
-    outgoing: Arc<Mutex<HashMap<Payment, PaymentState>>>,
+    bolt11: Arc<Mutex<HashMap<PaymentHash, TxStateBolt11>>>,
 }
 #[async_trait]
 impl FundingSource for TestFundingSource {
-    async fn create_payment(&self) -> Result<Payment> {
-        let (_, key) = generate_keypair(&mut rand::thread_rng());
-        let invoice = key.to_string();
-        self.incoming
+    async fn create_bolt11(&self, amount: Sats) -> Result<(PaymentHash, Invoice)> {
+        let (_, hash) = generate_keypair(&mut rand::thread_rng());
+        let (_, invoice) = generate_keypair(&mut rand::thread_rng());
+        let invoice = invoice.to_string();
+        let hash = hash.to_string();
+        self.bolt11
             .lock()
             .unwrap()
-            .insert(invoice.clone(), PaymentState::Created);
-        Ok(invoice)
+            .insert(hash.clone(), TxStateBolt11::Settled(amount));
+        Ok((hash, invoice))
     }
-    async fn pay(&self, payment: &Payment, amount: Sats) -> Result<PaymentState> {
-        let mut outgoing = self.outgoing.lock().unwrap();
-        match outgoing.get(payment) {
-            None => {
-                outgoing.insert(payment.clone(), PaymentState::Settled(amount));
-            }
-            Some(state) => match state {
-                PaymentState::Created | PaymentState::Failed => {
-                    outgoing.insert(payment.clone(), PaymentState::Settled(amount));
-                }
-                state => return Ok(state.clone()),
-            },
-        }
-        Ok(PaymentState::Settled(amount))
+    async fn pay_bolt11(&self, _invoice: Invoice, amount: Sats) -> Result<PaymentHash> {
+        let (_, hash) = generate_keypair(&mut rand::thread_rng());
+        let hash = hash.to_string();
+        self.bolt11
+            .lock()
+            .unwrap()
+            .insert(hash.clone(), TxStateBolt11::Settled(amount));
+        Ok(hash)
     }
-    async fn check_payment(&self, payment: &Payment) -> Result<PaymentState> {
-        let outgoing = self.outgoing.lock().unwrap();
-        if let Some(state) = outgoing.get(payment) {
+    async fn check_bolt11(&self, hash: PaymentHash) -> Result<TxStateBolt11> {
+        let tx = self.bolt11.lock().unwrap();
+        if let Some(state) = tx.get(&hash) {
             Ok(state.clone())
         } else {
             bail!("Invoice doesn't exist")
         }
-    }
-    async fn get_payment_details(&self, payment: Payment) -> Result<PaymentDetails> {
-        todo!()
     }
 }

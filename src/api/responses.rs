@@ -20,7 +20,7 @@ pub struct UserResponse {
     pub role: UserRole,
 }
 #[derive(PartialEq, Debug, Serialize, Deserialize, Clone)]
-pub struct CashOutRespose {
-    pub amount: Sats,
-    pub payment: Option<(Payment, PaymentState)>,
+pub struct DepositResponse {
+    pub invoice: Invoice,
+    pub id: RowId,
 }

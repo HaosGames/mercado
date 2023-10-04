@@ -4,13 +4,14 @@ use anyhow::{anyhow, bail, Context, Result};
 use reqwest::{Client, Response, StatusCode, Url};
 use serde::{Deserialize, Serialize};
 
-use crate::api::Payment;
+use crate::api::{Invoice, Payment, Sats};
 
 pub type PaymentHash = String;
 
 const SUPER_USER: &str = "3a98ce0c0b88486987d67cff59ef6094";
 const SUPER_USER_API_KEY: &str = "2321e4bf8ffe420ebff7d50102fd3f59";
-async fn read_super_user() -> Result<String> {
+#[cfg(test)]
+pub async fn read_super_user() -> Result<String> {
     let mut file = tokio::fs::File::open("lnbits/data/.super_user").await?;
     let mut contents = vec![];
     tokio::io::AsyncReadExt::read_to_end(&mut file, &mut contents).await?;
@@ -67,7 +68,7 @@ impl LnBitsWallet {
             .ok_or(anyhow!("No usr found in URL Query String"))?
             .to_string())
     }
-    async fn query_super_user_api_key(&self, usr: String) -> Result<String> {
+    pub async fn query_super_user_api_key(&self, usr: String) -> Result<String> {
         let response = self
             .get("/wallet?usr=".to_string() + usr.as_str(), StatusCode::OK)
             .await
@@ -170,11 +171,11 @@ impl LnBitsWallet {
             .await?;
         crate::client::bail_if_err(response, expexted_code).await
     }
-    pub async fn create_invoice(&self) -> Result<(PaymentHash, Payment)> {
+    pub async fn create_invoice(&self, amount: Sats) -> Result<(PaymentHash, Invoice)> {
         let request = CreateInvoiceRequest {
             out: false,
             memo: "".to_string(),
-            amount: 1,
+            amount: amount as u32,
         };
         let response = self
             .post("/api/v1/payments".to_string(), request, StatusCode::CREATED)
@@ -182,7 +183,7 @@ impl LnBitsWallet {
         let json = response.json::<CreateInvoiceResponse>().await?;
         Ok((json.payment_hash, json.payment_request))
     }
-    pub async fn pay_invoice(&self, invoice: Payment) -> Result<PaymentHash> {
+    pub async fn pay_invoice(&self, invoice: Invoice) -> Result<PaymentHash> {
         let request = PayInvoiceRequest {
             out: true,
             bolt11: invoice,
@@ -202,6 +203,16 @@ impl LnBitsWallet {
             .await?;
         let json = response.json::<CheckInvoiceResponse>().await?;
         Ok(json.paid)
+    }
+    pub async fn get_payment_amount(&self, payment_hash: PaymentHash) -> Result<Sats> {
+        let response = self
+            .get(
+                "/api/v1/payments/".to_string() + payment_hash.as_str(),
+                StatusCode::OK,
+            )
+            .await?;
+        let json = response.json::<CheckInvoiceResponse>().await?;
+        Ok(json.details.amount / 1000)
     }
     pub async fn is_reachable(&self) -> Result<()> {
         let response = self
@@ -249,6 +260,16 @@ pub struct PayInvoiceResponse {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CheckInvoiceResponse {
     paid: bool,
+    details: CheckInvoiceDetails,
+}
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CheckInvoiceDetails {
+    amount: i64,
+    bolt11: String,
+    time: i64,
+    fee: i64,
+    memo: String,
+    pending: bool,
 }
 
 #[cfg(test)]
@@ -292,7 +313,7 @@ mod test {
         let receiver_wallet = LnBitsWallet::new("http://127.0.0.1:5000".to_string())
             .await
             .unwrap();
-        let (payment_hash, invoice) = receiver_wallet.create_invoice().await.unwrap();
+        let (payment_hash, invoice) = receiver_wallet.create_invoice(100).await.unwrap();
         sender_wallet.pay_invoice(invoice).await.unwrap();
         let paid = receiver_wallet.is_payed(payment_hash).await.unwrap();
         assert_eq!(paid, true);

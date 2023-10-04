@@ -49,11 +49,6 @@ pub struct AddBetRequest {
     pub amount: Sats,
 }
 #[derive(Debug, Serialize, Deserialize)]
-pub struct PayBetRequest {
-    pub payment: Payment,
-    pub amount: Sats,
-}
-#[derive(Debug, Serialize, Deserialize)]
 pub struct CancelBetRequest {
     pub payment: Payment,
     pub refund_payment: Payment,
@@ -63,12 +58,6 @@ pub struct MakeDecisionRequest {
     pub prediction: RowId,
     pub judge: UserPubKey,
     pub decision: bool,
-}
-#[derive(Debug, Serialize, Deserialize)]
-pub struct CashOutUserRequest {
-    pub prediction: RowId,
-    pub user: UserPubKey,
-    pub payment: Payment,
 }
 #[derive(Debug, Serialize, Deserialize, Clone, PartialEq)]
 pub struct PredictionRequest {
@@ -87,6 +76,17 @@ pub struct JudgeRequest {
 }
 #[derive(Debug, Serialize, Deserialize, Clone, PartialEq)]
 pub struct AdjustBalanceRequest {
+    pub user: UserPubKey,
+    pub amount: Sats,
+}
+#[derive(Debug, Serialize, Deserialize, Clone, PartialEq)]
+pub struct WithdrawalRequest {
+    pub user: UserPubKey,
+    pub amount: Sats,
+    pub invoice: Invoice,
+}
+#[derive(Debug, Serialize, Deserialize, Clone, PartialEq)]
+pub struct DepositRequest {
     pub user: UserPubKey,
     pub amount: Sats,
 }

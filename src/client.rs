@@ -268,6 +268,51 @@ impl Client {
             .await?;
         Ok(response.json::<Sats>().await?)
     }
+    pub async fn init_withdrawal_bolt11(
+        &self,
+        request: WithdrawalRequest,
+        access: AccessRequest,
+    ) -> Result<RowId> {
+        let response = self
+            .post(
+                "/init_withdrawal_bolt11",
+                PostRequest {
+                    data: request,
+                    access,
+                },
+                StatusCode::OK,
+            )
+            .await?;
+        Ok(response.json::<RowId>().await?)
+    }
+    pub async fn init_deposit_bolt11(
+        &self,
+        request: DepositRequest,
+        access: AccessRequest,
+    ) -> Result<(RowId, Invoice)> {
+        let response = self
+            .post(
+                "/init_deposit_bolt11",
+                PostRequest {
+                    data: request,
+                    access,
+                },
+                StatusCode::OK,
+            )
+            .await?;
+        let response = response.json::<DepositResponse>().await?;
+        Ok((response.id, response.invoice))
+    }
+    pub async fn check_tx(&self, id: RowId, access: AccessRequest) -> Result<Tx> {
+        let response = self
+            .post(
+                "/check_tx",
+                PostRequest { data: id, access },
+                StatusCode::OK,
+            )
+            .await?;
+        Ok(response.json::<Tx>().await?)
+    }
 }
 
 pub async fn bail_if_err(response: Response, expexted_code: StatusCode) -> Result<Response> {
