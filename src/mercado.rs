@@ -3,7 +3,7 @@ use crate::db::DB;
 use crate::funding_source::FundingSource;
 use anyhow::{anyhow, bail, Context, Result};
 use chrono::{DateTime, Duration, Utc};
-use log::{debug, error, trace, warn};
+use log::{debug, error, info, trace, warn};
 use reqwest::StatusCode;
 use rust_decimal::prelude::ToPrimitive;
 use rust_decimal::Decimal;
@@ -163,7 +163,7 @@ impl Mercado {
         let id = self
             .db
             .add_prediction(Prediction {
-                prediction,
+                prediction: prediction.clone(),
                 judges: judges.iter().map(|user| user.clone()).collect(),
                 judge_count,
                 judge_share_ppm,
@@ -173,6 +173,7 @@ impl Mercado {
                 cash_out: None,
             })
             .await?;
+        debug!("Created Prediction {}: {}", id, prediction);
         Ok(id)
     }
     pub async fn accept_nomination(
@@ -192,6 +193,10 @@ impl Mercado {
             _ => bail!("Wrong market state"),
         }
         //TODO Check if judge accepted via Nostr
+        debug!(
+            "Accepted nomination on prediction {} for user {}",
+            prediction, user
+        );
         match self
             .db
             .set_judge_state(prediction, user, JudgeState::Accepted)
@@ -213,7 +218,10 @@ impl Mercado {
             MarketState::WaitingForJudges => {}
             _ => bail!("Wrong market state"),
         }
-        //TODO Check if judge refused via Nostr
+        debug!(
+            "Refused nomination on prediction {} for user {}",
+            prediction, user
+        );
         self.db
             .set_judge_state(prediction, user, JudgeState::Refused)
             .await
@@ -258,7 +266,10 @@ impl Mercado {
             }
             JudgeState::Resolved(_) | JudgeState::Accepted => {}
         }
-        //TODO Check if judge made decision via Nostr
+        debug!(
+            "Voted for {} on prediction {} for judge {}",
+            decision, prediction, judge
+        );
         match self
             .db
             .set_judge_state(prediction, judge, JudgeState::Resolved(decision))
@@ -459,7 +470,8 @@ impl Mercado {
         amount: Sats,
         access: AccessRequest,
     ) -> Result<()> {
-        self.check_access_for_user(user.clone(), access).await?;
+        self.check_access_for_user(user.clone(), access.clone())
+            .await?;
         match self.db.get_prediction_state(prediction).await? {
             MarketState::Trading => {
                 if self.db.get_trading_end(prediction).await? < Utc::now() {
@@ -473,6 +485,10 @@ impl Mercado {
             _ => bail!("Prediction has to be Trading to be able to bet on it"),
         }
         self.db.create_bet(prediction, user, bet, amount).await?;
+        debug!(
+            "Added {} sats bet on {} and prediction {} for user {} by {}",
+            amount, bet, prediction, user, access.user
+        );
         Ok(())
     }
     pub async fn cancel_bet(&mut self, id: RowId, access: AccessRequest) -> Result<()> {
@@ -492,6 +508,7 @@ impl Mercado {
             _ => bail!("Wrong market state"),
         }
         self.db.remove_bet(id).await?;
+        debug!("Cancelled bet {} by {}", id, access.user);
         Ok(())
     }
     async fn get_outcome_judge_count(&self, prediction: RowId) -> Result<u32> {
@@ -540,11 +557,15 @@ impl Mercado {
         prediction: RowId,
         access: AccessRequest,
     ) -> Result<()> {
-        if let UserRole::User = self.check_access(access).await? {
+        if let UserRole::User = self.check_access(access.clone()).await? {
             bail!("Access Denied: Admin only API");
         }
         match self.db.get_prediction_state(prediction).await? {
             MarketState::Trading => {
+                warn!(
+                    "{} forced the end of the decision period for prediction {}",
+                    access.user, prediction
+                );
                 self.db
                     .set_prediction_state(prediction, MarketState::WaitingForDecision)
                     .await
@@ -599,6 +620,7 @@ impl Mercado {
             &user,
         )?;
         self.db.update_access_token(user, sig, challenge).await?;
+        debug!("User {} successfully logged in", user);
         Ok(())
     }
     pub async fn update_user(
@@ -696,6 +718,7 @@ impl Mercado {
             bail!("Access Denied: Operation only permitted for admins");
         }
         let new_balance = self.db.adjust_user_balance(user, amount).await?;
+        warn!("Adjusted balance for {}: {}", user, amount);
         Ok(new_balance)
     }
     pub async fn init_withdrawal_bolt11(
@@ -725,6 +748,10 @@ impl Mercado {
             state: TxStateBolt11::PayInit(amount),
         };
         let id = self.db.create_tx(user, TxDirection::Withdrawal, tx).await?;
+        debug!(
+            "Initiated Bolt11 Withdrawal: user:{} amount:{}",
+            user, amount
+        );
         Ok(id)
     }
     pub async fn init_deposit_bolt11(
@@ -743,6 +770,7 @@ impl Mercado {
             state: TxStateBolt11::PayInit(amount),
         };
         let id = self.db.create_tx(user, TxDirection::Deposit, tx).await?;
+        debug!("Initiated Bolt11 Deposit: user:{}, amount:{}", user, amount);
         Ok((id, invoice))
     }
     pub async fn check_tx(&self, id: RowId, access: AccessRequest) -> Result<Tx> {
@@ -767,11 +795,16 @@ impl Mercado {
                     if tx.initiated < Utc::now() - Duration::minutes(10) {
                         new_state = TxStateBolt11::Failed;
                         self.db.adjust_user_balance(tx.user, pending_amount).await?;
+                        warn!("Marking withdrawal {} as failed", id);
                     }
+                }
+                if state == new_state {
+                    return Ok(tx);
                 }
                 self.db
                     .update_tx_state_bolt11(id, new_state.clone())
                     .await?;
+                debug!("New state {:?} for withdrawal {}", new_state, id);
                 let tx = Tx {
                     user: tx.user,
                     initiated: tx.initiated,
@@ -795,12 +828,16 @@ impl Mercado {
                     .funding
                     .check_bolt11(details.payment_hash.clone())
                     .await?;
+                if state == new_state {
+                    return Ok(tx);
+                }
                 self.db
                     .update_tx_state_bolt11(id, new_state.clone())
                     .await?;
                 if let TxStateBolt11::Settled(amount) = new_state {
                     self.db.adjust_user_balance(tx.user, amount).await?;
                 }
+                debug!("New state {:?} for Deposit {}", new_state, id);
                 let tx = Tx {
                     user: tx.user,
                     initiated: tx.initiated,

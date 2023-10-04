@@ -53,7 +53,6 @@ async fn new_prediction(
         )
         .await
         .map_err(map_any_err_and_code)?;
-    debug!("Created Prediction {}: {}", id, prediction.prediction);
     Ok((StatusCode::CREATED, id.into()))
 }
 #[debug_handler]
@@ -67,10 +66,6 @@ async fn accept_nomination(
         .accept_nomination(prediction.prediction, prediction.user, request.access)
         .await
         .map_err(map_any_err_and_code)?;
-    debug!(
-        "Accepted nomination on prediction {} for user {}",
-        prediction.prediction, prediction.user
-    );
     Ok(())
 }
 async fn refuse_nomination(
@@ -83,10 +78,6 @@ async fn refuse_nomination(
         .refuse_nomination(request.prediction, request.user, access)
         .await
         .map_err(map_any_err_and_code)?;
-    debug!(
-        "Refused nomination on prediction {} for user {}",
-        request.prediction, request.user
-    );
     Ok(())
 }
 async fn make_decision(
@@ -99,10 +90,6 @@ async fn make_decision(
         .make_decision(request.prediction, request.judge, request.decision, access)
         .await
         .map_err(map_any_err_and_code)?;
-    debug!(
-        "Voted for {} on prediction {} for judge {}",
-        request.decision, request.prediction, request.judge
-    );
     Ok(())
 }
 async fn add_bet(
@@ -121,10 +108,6 @@ async fn add_bet(
         )
         .await
         .map_err(map_any_err_and_code)?;
-    debug!(
-        "Added {}sats bet on {} and prediction {} for user {}",
-        request.amount, request.bet, request.prediction, request.user
-    );
     Ok(StatusCode::CREATED)
 }
 async fn cancel_bet(
@@ -137,7 +120,6 @@ async fn cancel_bet(
         .cancel_bet(request, access)
         .await
         .map_err(map_any_err_and_code)?;
-    debug!("Cancelled bet {}", request);
     Ok(())
 }
 async fn get_predictions(
@@ -188,10 +170,6 @@ async fn force_decision_period(
     Json(request): Json<PostRequest<RowId>>,
 ) -> Result<(), (StatusCode, String)> {
     let mut backend = state.write().await;
-    warn!(
-        "Forcing the end of the decision period for prediction {}",
-        request.data
-    );
     backend
         .force_decision_period(request.data, request.access)
         .await
@@ -220,7 +198,6 @@ async fn try_login(
         .try_login(request.user, request.sig, request.challenge)
         .await
         .map_err(map_any_err_and_code)?;
-    debug!("User {} successfully logged in", request.user);
     Ok(())
 }
 async fn check_login(
@@ -363,10 +340,6 @@ async fn init_deposit_bolt11(
         .await
         .map_err(map_any_err_and_code)?;
     let response = DepositResponse { invoice, id };
-    debug!(
-        "Initiated Deposit of {} sats with id {} for {}",
-        data.amount, id, data.user
-    );
     Ok(Json(response))
 }
 async fn check_tx(
@@ -379,7 +352,6 @@ async fn check_tx(
         .check_tx(data, request.access)
         .await
         .map_err(map_any_err_and_code)?;
-    trace!("Checked tx {}: {:?}", data, tx);
     Ok(Json(tx))
 }
 async fn get_txs(
