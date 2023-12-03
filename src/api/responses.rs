@@ -3,7 +3,7 @@ use serde::{Deserialize, Serialize};
 
 use super::*;
 
-#[derive(PartialEq, Debug, Serialize, Deserialize, Clone)]
+#[derive(PartialEq, Debug, Serialize, Deserialize, Clone, Eq)]
 pub struct PredictionOverviewResponse {
     pub id: RowId,
     pub name: String,

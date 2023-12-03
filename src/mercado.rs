@@ -133,7 +133,10 @@ impl Mercado {
         trading_end: DateTime<Utc>,
         decision_period: Duration,
     ) -> Result<RowId> {
-        if judges.len() < judge_count as usize || judge_count == 0 {
+        if judge_count == 0 {
+            bail!("There neeeds to be at least one judge");
+        }
+        if judges.len() < judge_count as usize {
             return Err(anyhow!(
                 "There were {} nominated judges but there need to be at least {}",
                 judges.len(),
@@ -492,6 +495,9 @@ impl Mercado {
             }
             _ => bail!("Prediction has to be Trading to be able to bet on it"),
         }
+        if amount <= 0 {
+            bail!("Amount has to be positive");
+        }
         self.db.create_bet(prediction, user, bet, amount).await?;
         debug!(
             "Added {} sats bet on {} and prediction {} for user {} by {}",
@@ -739,6 +745,9 @@ impl Mercado {
         access: AccessRequest,
     ) -> Result<RowId> {
         self.check_access_for_user(user, access.clone()).await?;
+        if amount <= 0 {
+            bail!("Amount has to be positive");
+        }
         //TODO make balance check atomic with the balance adjustment
         let invoice_amount = self.funding.decode_bolt11(invoice.clone()).await?;
         if invoice_amount != amount {
@@ -771,6 +780,9 @@ impl Mercado {
         access: AccessRequest,
     ) -> Result<(RowId, Invoice)> {
         self.check_access_for_user(user, access.clone()).await?;
+        if amount <= 0 {
+            bail!("Amount has to be positive");
+        }
         let (hash, invoice) = self.funding.create_bolt11(amount).await?;
         let tx = TxType::Bolt11 {
             details: TxDetailsBolt11 {

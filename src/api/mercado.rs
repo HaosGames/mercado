@@ -32,7 +32,7 @@ pub enum JudgeState {
     Refused,
     Resolved(bool),
 }
-#[derive(PartialEq, Debug, Clone, Serialize, Deserialize, Copy)]
+#[derive(PartialEq, Debug, Clone, Serialize, Deserialize, Copy, Eq)]
 pub enum MarketState {
     WaitingForJudges,
     Trading,
@@ -41,7 +41,7 @@ pub enum MarketState {
     Refunded(RefundReason),
     Stopped,
 }
-#[derive(PartialEq, Debug, Clone, Copy, Serialize, Deserialize)]
+#[derive(PartialEq, Debug, Clone, Copy, Serialize, Deserialize, Eq)]
 pub enum RefundReason {
     Insolvency,
     TimeForDecisionRanOut,
