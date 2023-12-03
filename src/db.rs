@@ -505,6 +505,7 @@ impl DB {
                     trading_end,
                     decision_period_sec,
                     state,
+                    ratio: self.get_prediction_ratio(id).await?,
                 },
             );
         }
@@ -520,6 +521,7 @@ impl DB {
             FROM predictions WHERE rowid = ?",
         );
         let row = self.connection.fetch_one(stmt.bind(prediction)).await?;
+        let ratio = self.get_prediction_ratio(prediction).await?;
         let overview = PredictionOverviewResponse {
             id: row.get("rowid"),
             name: row.get("prediction"),
@@ -528,6 +530,7 @@ impl DB {
             trading_end: Utc.timestamp_opt(row.get("trading_end"), 0).unwrap(),
             decision_period_sec: row.get("decision_period"),
             state: MarketState::from_str(row.get("state")).unwrap(),
+            ratio,
         };
         Ok(overview)
     }

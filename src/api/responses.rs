@@ -12,6 +12,7 @@ pub struct PredictionOverviewResponse {
     pub judge_count: u32,
     pub trading_end: DateTime<Utc>,
     pub decision_period_sec: u32,
+    pub ratio: (Sats, Sats),
 }
 #[derive(PartialEq, Debug, Serialize, Deserialize, Clone)]
 pub struct UserResponse {

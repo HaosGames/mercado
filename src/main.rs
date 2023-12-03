@@ -577,6 +577,7 @@ mod test {
                     .timestamp_opt(prediction_http_request.trading_end.timestamp(), 0)
                     .unwrap(),
                 decision_period_sec: 86400,
+                ratio,
             }
         )
     }
