@@ -91,6 +91,24 @@ UserShare = UserPayouts * (UserBets(true) / Bets(true))
 UserPayouts = Sum(UserShare)
 JudgePayout = JudgePayouts / JudgeCount(true)
 ```
+Example:
+Given:
+
+- judge share 10%
+- judge A votes true
+- judge B votes true
+- judge C votes false
+- user A bets 100 sats on true
+- user B bets 100 sats on false
+- user C bets 100 sats on true and 100 sats on false
+
+Payouts: -> outcome=true
+
+- judge A: 20 sats
+- judge B: 20 sats
+- user A: 180 sats
+- user B: 0 sats
+- user C: 180 sats
 
 
 # Incentives
