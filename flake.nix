@@ -69,7 +69,7 @@
           inherit cargoArtifacts;
         });
       in
-      {
+      rec {
         checks = {
           # Build the crate as part of `nix flake check` for convenience
           inherit my-crate;
@@ -116,8 +116,14 @@
           });
         };
 
-        apps.default = flake-utils.lib.mkApp {
+        apps.default = apps.server;
+        apps.server = flake-utils.lib.mkApp {
           drv = my-crate;
+          exePath = "/bin/server";
+        };
+        apps.cli = flake-utils.lib.mkApp {
+          drv = my-crate;
+          exePath = "/bin/cli";
         };
 
         devShells.default = craneLib.devShell {
